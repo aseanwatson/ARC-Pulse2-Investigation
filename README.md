@@ -76,7 +76,62 @@ I suspect, based on PCB layout, the `PC9554` is `U15` (labeled `8536`). This is 
 I found a documents with the [Serial Protocol for Pulse Blinds](https://www.avoutlet.com/images/product/additional/r/pulse-serial-instructions.pdf) on this
 [Bond Home forum thread](https://forum.bondhome.io/t/rollease-acmeda-and-dooya-motorized-shades/413/3). It suggests 9600 baud, 8N1.
 
-## Equipment
-### RTL-SDR
-### HackRF1
-### Yardstick1
+## Capture Process
+### GQRX Survey
+Here's a screen shot from GQRX:
+![GQRX Screen Shot](data/GQRX_f433000000_s2000000_a0_l16_g2.png)
+It shows energy around 433.92MHz (as expected). But the DC spike seems to be at
+433.277MHz rather than the 433.0MHz targeted by the tuning parameter.
+
+### `hackrf_transfer` capture
+Here's my attempt to replicate that with the command line tool.
+```bash
+hackrf_transfer -f 433125000 -s 20000000 -a 0 -l 16 -g 2 -n 80000000 -r $datadir/remote_dr2_f433125000_s2000000_a0_l16_g2.iq
+```
+Which yields:
+```
+call hackrf_set_sample_rate(20000000 Hz/20.000 MHz)
+call hackrf_set_hw_sync_mode(0)
+call hackrf_set_freq(433125000 Hz/433.125 MHz)
+call hackrf_set_amp_enable(0)
+samples_to_xfer 80000000/80Mio
+Stop with Ctrl-C
+39.6 MiB / 1.014 sec = 39.0 MiB/second, average power -33.2 dBfs
+39.3 MiB / 0.996 sec = 39.5 MiB/second, average power -33.1 dBfs
+39.6 MiB / 1.001 sec = 39.6 MiB/second, average power -33.1 dBfs
+39.6 MiB / 1.002 sec = 39.5 MiB/second, average power -33.1 dBfs
+ 2.1 MiB / 0.047 sec = 44.3 MiB/second, average power -33.3 dBfs
+
+Exiting...
+Total time: 4.05986 s
+hackrf_stop_rx() done
+hackrf_close() done
+hackrf_exit() done
+fclose() done
+exit
+```
+
+(Data preserved at [remote_dr2_f433125000_s2000000_a0_l16_g2.iq](data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq) so you can
+play along at home...)
+
+I then convert the int8 to complex float 32:
+```python
+import numpy as np
+
+def load_hackrf_iq(path):
+    raw = np.fromfile(path, dtype=np.int8)
+    iq = raw.reshape(-1, 2)
+    return (iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32)) / 128.0
+
+def save_to_gqrx_float32(x, path):
+    interleaved = np.empty(2 * len(x), dtype=np.float32)
+    interleaved[0::2] = x.real.astype(np.float32)
+    interleaved[1::2] = x.imag.astype(np.float32)
+    interleaved.tofile(path)
+
+samples = load_hackrf_iq('data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq')
+save_to_gqrx_float32(samples, 'generated/remote_dr2_f433125000_s2000000_a0_l16_g2.c32')
+```
+
+After opening GQRX with the device string of `file=generated/dining_room_2_f433000000_s2000000.c32,freq=433.0e6,rate=20e6,repeat=true,throttle=true`, and setting the frequency to `0` in the **Receiver Options** tab, I get this:
+![GQRX Screen Shot](data/GQRX_f433000000_s2000000_a0_l16_g2.png)
