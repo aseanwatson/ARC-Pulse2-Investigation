@@ -111,9 +111,6 @@ fclose() done
 exit
 ```
 
-(Data preserved at [remote_dr2_f433125000_s2000000_a0_l16_g2.iq](data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq) so you can
-play along at home...)
-
 I then convert the int8 to complex float 32:
 ```python
 import numpy as np
