@@ -60,7 +60,7 @@ class iq_samples:
 
     def save_to_float32(self, base):
         path = f'generated/{base}.cf32'
-        print(f'saving {self.sample_count} samples to {path}:')
+        logging.info(f'saving {self.sample_count} samples to {path}:')
         interleaved = np.empty(2 * self.sample_count, dtype=np.float32)
         interleaved[0::2] = self.data.real.astype(np.float32)
         interleaved[1::2] = self.data.imag.astype(np.float32)
@@ -69,7 +69,7 @@ class iq_samples:
     @staticmethod
     def load_int8(path, fs, fc):
         raw = np.fromfile(path, dtype=np.int8)
-        print(f'loaded {len(raw)//2} samples from {path}:')
+        logging.info(f'loaded {len(raw)//2} samples from {path}:')
         iq = raw.reshape(-1, 2)
         return iq_samples(
             data = iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32) / 128.0,
