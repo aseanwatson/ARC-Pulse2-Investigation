@@ -160,17 +160,17 @@ samples = iq_samples.load_int8(
     fs = 20e6,
     fc = 433.125e6)
 
-#samples.save_to_cf32('raw')
+samples.save_to_cf32('raw')
 # shift from fc_capture to fc
 samples = samples.recenter(fc)
-#samples.save_to_cf32('shifted')
+samples.save_to_cf32('shifted')
 #dc correct by removing the mean
 samples=samples.dc_correct()
-#samples.save_to_cf32('dc_corrected')
+samples.save_to_cf32('dc_corrected')
 
 # do a low-pass filter to focus on the signal
 samples = samples.low_pass(numtaps=numtaps, bandwidth=fd)
-#samples.save_to_cf32('filtered')
+samples.save_to_cf32('filtered')
 
 samples = samples.decimate(decim)
 samples.save_to_cf32('decimated')
