@@ -172,6 +172,9 @@ samples.save_to_cf32('dc_corrected')
 samples = samples.low_pass(numtaps=numtaps, bandwidth=fd)
 samples.save_to_cf32('filtered')
 
+samples=samples.normalize_percentile(95, min_threshold_percentile=10)
+samples.save_to_cf32('normalized')
+
 samples = samples.decimate(decim)
 samples.save_to_cf32('decimated')
 
