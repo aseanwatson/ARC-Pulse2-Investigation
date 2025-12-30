@@ -9,6 +9,7 @@ from scipy.signal.windows import blackmanharris
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib.widgets import Button, Slider
 
 import logging
 
@@ -189,6 +190,26 @@ hop_size //= decim
 n_max //= decim
 
 psd_history = []
+# ------------------------------------------------------------
+# Precompute PSD frames
+# ------------------------------------------------------------
+
+frames = (samples.sample_count - fft_size) // hop_size
+
+psd_frames = []
+for frame in range(frames):
+    if frame % 1000 == 0:
+        logging.info(f'Precomputing frame {frame}/{frames}')
+    start = frame * hop_size
+    chunk = samples.data[start:start+fft_size]
+    if len(chunk) < fft_size:
+        break
+    windowed = chunk * blackmanharris(len(chunk))
+    psd = 20 * np.log10(np.abs(np.fft.fftshift(np.fft.fft(windowed))) + 1e-12)
+    psd_frames.append(psd)
+
+psd_frames = np.array(psd_frames)
+frames = len(psd_frames)
 
 xscale=1e6
 xunit='MHz'
@@ -213,22 +234,17 @@ ax.set_xlim((samples.fc - fd*3/2)/xscale, (samples.fc + fd*3/2)/xscale)
 # Animation update function
 def update(frame):
     start = frame * hop_size
-    chunk = samples.data[start:start+fft_size]
     current_time = start * 1e3 / samples.fs  # in ms
-    time_text.set_text(f"Time: {current_time: 4f}ms; frame: {frame:04d}")
-    if len(chunk) < fft_size:
-        return line,
-    windowed = chunk * blackmanharris(len(chunk))
-    psd = 20 * np.log10(np.abs(np.fft.fftshift(np.fft.fft(windowed))) + 1e-12)
-    # Update history
-    psd_history.append(psd)
-    if len(psd_history) > n_max:
-        psd_history.pop(0)
+    time_text.set_text(f"Time: {current_time: 4.0f}ms; frame: {frame: 4d}")
 
-    max_psd = np.max(psd_history, axis=0)
-
+    psd = psd_frames[frame]
     line.set_data(freqs/xscale, psd)
+
+    # Max over last n_max frames
+    start = max(0, frame - n_max + 1)
+    max_psd = np.max(psd_frames[start:frame+1], axis=0)
     max_line.set_data(freqs/xscale, max_psd)
+
     return line, max_line, time_text
 
 # Animate
