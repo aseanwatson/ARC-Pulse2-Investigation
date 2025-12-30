@@ -46,7 +46,7 @@ class iq_samples:
         :rtype: iq_samples
         """
         return self._modified(
-            data = self.data * np.exp(-2j * np.pi * (fc - self.fc) * np.arange(self.sample_count) / self.fs),
+            data = self.data * np.exp(-2j * np.pi * (fc_new - self.fc) * np.arange(self.sample_count) / self.fs),
             fc = fc_new)
 
     def dc_correct(self) -> 'iq_samples':
