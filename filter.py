@@ -10,12 +10,19 @@ from scipy.signal.windows import blackmanharris
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
 fc = 433.92e6
-fd = 200e3
+fd = 80e3
 fft_size = 32768
-hop_size = fft_size // 2  # overlap
+hop_size = fft_size // 8  # overlap
 n_max = 100  # number of frames to track
-decim = 40
+decim = 2
 
 numtaps = 801  # long enough for steep transition
 
@@ -29,7 +36,7 @@ class iq_samples:
     def sample_count(self):
         return len(self.data)
 
-    def modified(self, data = None, fs = None, fc = None):
+    def _modified(self, data = None, fs = None, fc = None):
         if data is None:
             data = self.data
         if fs is None:
@@ -177,6 +184,9 @@ samples.save_to_cf32('normalized')
 
 samples = samples.decimate(decim)
 samples.save_to_cf32('decimated')
+fft_size //= decim
+hop_size //= decim
+n_max //= decim
 
 psd_history = []
 
@@ -189,7 +199,7 @@ line, = ax.plot([], [], lw=1, label="Current PSD")
 max_line, = ax.plot([], [], lw=1, color='red', alpha=0.6, label=f"Max over last {n_max}")
 time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes, fontsize=10, color='gray')
 ax.legend()
-ax.set_ylim(70, 130)
+ax.set_ylim(50, 120)
 ax.set_xlabel(f"Frequency ({xunit})")
 ax.set_ylabel("Power (dB)")
 ax.set_title("Live PSD")
@@ -198,7 +208,7 @@ ax.set_title("Live PSD")
 freqs = np.fft.fftshift(np.fft.fftfreq(fft_size, d=1/samples.fs)) + samples.fc
 
 # Set axis limits to fc ± fd/2
-ax.set_xlim((samples.fc - fd/2)/xscale, (samples.fc + fd/2)/xscale)
+ax.set_xlim((samples.fc - fd*3/2)/xscale, (samples.fc + fd*3/2)/xscale)
 
 # Animation update function
 def update(frame):
