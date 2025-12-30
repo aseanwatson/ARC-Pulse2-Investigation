@@ -35,28 +35,63 @@ class iq_samples:
             fc = self.fc
         return iq_samples(data = data, fs = fs, fc = fc)
 
-    def recenter(self, fc_new):
-        return self.modified(
+    def recenter(self, fc_new:float) -> 'iq_samples':
+        """
+        Shifts samples so a new frequency is at the center
+        
+        :param self: Description
+        :param fc_new: Description
+        :type fc_new: float
+        :return: Description
+        :rtype: iq_samples
+        """
+        return self._modified(
             data = self.data * np.exp(-2j * np.pi * (fc - self.fc) * np.arange(self.sample_count) / self.fs),
             fc = fc_new)
 
-    def dc_correct(self):
-        return self.modified(data = self.data - np.mean(self.data))
+    def dc_correct(self) -> 'iq_samples':
+        """
+        Subtracts the mean to remove DC bias.
+        """
+        return self._modified(data = self.data - np.mean(self.data))
 
-    def low_pass(self, numtaps, bandwidth):
+    def low_pass(self, numtaps:int, bandwidth:float) -> 'iq_samples':
+        """
+        Applies an FIR low-pass filter around the center frequency.
+        
+        :param numtaps: Number of coefficients in the filter. (See 'numtaps' in 'firwin')
+        :type numtaps: int
+        :param bandwidth: Width of the frequency band to pass.
+        :type bandwidth: float
+        :return: An `iq_samples` with the filter applied.
+        :rtype: iq_samples
+        """
         lp_taps = firwin(
             numtaps = numtaps,
             cutoff = bandwidth / 2,
             fs = self.fs,
             window = "blackmanharris")
 
-        return self.modified(
+        return self._modified(
             data = lfilter(lp_taps, 1.0, self.data))
 
-    def decimate(self, decimation_factor):
-        return self.modified(data = self.data[::decimation_factor])
+    def decimate(self, decimation_factor:int) -> 'iq_samples':
+        """
+        Resamples the iq_samples, keeping only one sample per `decimation_factor` samples.
+        
+        :param decimation_factor: Number of samples to reduce to one.
+        :type decimation_factor: int
+        :return: The decimated `iq_samples`
+        :rtype: iq_samples
+        """
+        return self._modified(data = self.data[::decimation_factor])
 
     def save_to_float32(self, base):
+        """
+        Saves samples as a cf32 file. This is used for input to gqrx or inspectrum, for example.
+        
+        :param base: Basename to save to.
+        """
         path = f'generated/{base}.cf32'
         logging.info(f'saving {self.sample_count} samples to {path}:')
         interleaved = np.empty(2 * self.sample_count, dtype=np.float32)
@@ -65,7 +100,18 @@ class iq_samples:
         interleaved.tofile(path)
 
     @staticmethod
-    def load_int8(path, fs, fc):
+    def load_int8(path, fs:float, fc:float) -> 'iq_samples':
+        """
+        Docstring for load_int8
+        
+        :param path: Description
+        :param fs: Description
+        :type fs: float
+        :param fc: Description
+        :type fc: float
+        :return: Description
+        :rtype: iq_samples
+        """
         raw = np.fromfile(path, dtype=np.int8)
         logging.info(f'loaded {len(raw)//2} samples from {path}:')
         iq = raw.reshape(-1, 2)
