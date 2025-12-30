@@ -1,5 +1,8 @@
 #!/bin/env python
 import numpy as np
+from numpy.typing import NDArray
+
+from typing import Optional
 
 from scipy.signal import firwin, lfilter
 from scipy.signal.windows import blackmanharris
