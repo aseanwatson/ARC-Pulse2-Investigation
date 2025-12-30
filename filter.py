@@ -116,7 +116,7 @@ class iq_samples:
         :return: The decimated `iq_samples`
         :rtype: iq_samples
         """
-        return self._modified(data = self.data[::decimation_factor])
+        return self._modified(data = self.data[::decimation_factor], fs=self.fs/decimation_factor)
 
     def save_to_float32(self, base):
         """
