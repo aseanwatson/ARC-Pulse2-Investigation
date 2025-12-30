@@ -148,7 +148,7 @@ class iq_samples:
         logging.info(f'loaded {len(raw)//2} samples from {path}:')
         iq = raw.reshape(-1, 2)
         return iq_samples(
-            data = iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32) / 128.0,
+            data = (iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32)) / 128.0,
             fs = fs,
             fc = fc)
 
