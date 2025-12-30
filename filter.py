@@ -18,6 +18,42 @@ decim = 40
 
 numtaps = 801  # long enough for steep transition
 
+class iq_samples:
+    def __init__(self, data, fs, fc):
+        self.data = data
+        self.fs = fs
+        self.fc = fc
+
+    def modified(self, data = None, fs = None, fc = None):
+        if data is None:
+            data = self.data
+        if fs is None:
+            fs = self.fs
+        if fc is None:
+            fc = self.fc
+        return iq_samples(data = data, fs = fs, fc = fc)
+
+    def recenter(self, fc_new):
+        return self.modified(
+            data = self.data * np.exp(-2j * np.pi * (fc - self.fc) * np.arange(len(self.data)) / self.fs),
+            fc = fc_new)
+
+    def dc_correct(self):
+        return self.modified(data = self.data - np.mean(self.data))
+
+    def low_pass(self, numtaps, bandwidth):
+        lp_taps = firwin(
+            numtaps = numtaps,
+            cutoff = bandwidth / 2,
+            fs = self.fs,
+            window = "blackmanharris")
+
+        return self.modified(
+            data = lfilter(lp_taps, 1.0, self.data))
+
+    def decimate(self, decimation_factor):
+        return self.modified(data = self.data[::decimation_factor])
+
 def load_hackrf_iq(path):
     raw = np.fromfile(path, dtype=np.int8)
     print(f'loaded {len(raw)} samples from {path}:')
@@ -32,29 +68,24 @@ def save_to_gqrx_float32(x, base):
     interleaved[1::2] = x.imag.astype(np.float32)
     interleaved.tofile(path)
 
-samples = load_hackrf_iq('data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq')
-save_to_gqrx_float32(samples, 'raw')
+samples = iq_samples(
+    data = load_hackrf_iq('data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq'),
+    fs = 20e6,
+    fc = 433.125e6)
+save_to_gqrx_float32(samples.data, 'raw')
 # shift from fc_capture to fc
-samples = samples * np.exp(-2j * np.pi * (fc - fc_capture) * np.arange(len(samples)) / fs)
-save_to_gqrx_float32(samples, 'shifted')
+samples = samples.recenter(fc)
+save_to_gqrx_float32(samples.data, 'shifted')
 #dc correct by removing the mean
-samples=samples-np.mean(samples)
-save_to_gqrx_float32(samples, 'dc_corrected')
+samples=samples.dc_correct()
+save_to_gqrx_float32(samples.data, 'dc_corrected')
 
 # do a low-pass filter to focus on the signal
-lp_taps = firwin(
-    numtaps,
-    cutoff=fd/2,
-    fs=fs,
-    window="blackmanharris"
-)
-samples = lfilter(lp_taps, 1.0, samples)
-save_to_gqrx_float32(samples, 'filtered')
+samples = samples.low_pass(numtaps=numtaps, bandwidth=fd)
+save_to_gqrx_float32(samples.data, 'filtered')
 
-samples = samples[::decim]
-fs = fs / decim
-
-save_to_gqrx_float32(samples, 'decimated')
+samples = samples.decimate(decim)
+save_to_gqrx_float32(samples.data, 'decimated')
 
 psd_history = []
 
@@ -73,16 +104,16 @@ ax.set_ylabel("Power (dB)")
 ax.set_title("Live PSD")
 
 # Frequency axis centered at fc
-freqs = np.fft.fftshift(np.fft.fftfreq(fft_size, d=1/fs)) + fc
+freqs = np.fft.fftshift(np.fft.fftfreq(fft_size, d=1/samples.fs)) + samples.fc
 
 # Set axis limits to fc ± fd/2
-ax.set_xlim((fc - fd/2)/xscale, (fc + fd/2)/xscale)
+ax.set_xlim((samples.fc - fd/2)/xscale, (samples.fc + fd/2)/xscale)
 
 # Animation update function
 def update(frame):
     start = frame * hop_size
-    chunk = samples[start:start+fft_size]
-    current_time = start * 1e3 / fs  # in ms
+    chunk = samples.data[start:start+fft_size]
+    current_time = start * 1e3 / samples.fs  # in ms
     time_text.set_text(f"Time: {current_time: 4f}ms; frame: {frame:04d}")
     if len(chunk) < fft_size:
         return line,
@@ -100,6 +131,6 @@ def update(frame):
     return line, max_line, time_text
 
 # Animate
-frames = (len(samples) - fft_size) // hop_size
+frames = (len(samples.data) - fft_size) // hop_size
 ani = FuncAnimation(fig, update, frames=frames, interval=50, blit=True)
 plt.show()
