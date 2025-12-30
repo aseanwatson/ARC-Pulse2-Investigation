@@ -12,9 +12,9 @@ from matplotlib.animation import FuncAnimation
 
 fc = 433.92e6
 fd = 200e3
-fft_size = 32768 // 16
+fft_size = 32768
 hop_size = fft_size // 2  # overlap
-n_max = 10  # number of frames to track
+n_max = 100  # number of frames to track
 decim = 40
 
 numtaps = 801  # long enough for steep transition
@@ -189,7 +189,7 @@ line, = ax.plot([], [], lw=1, label="Current PSD")
 max_line, = ax.plot([], [], lw=1, color='red', alpha=0.6, label=f"Max over last {n_max}")
 time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes, fontsize=10, color='gray')
 ax.legend()
-ax.set_ylim(-60, 0)
+ax.set_ylim(70, 130)
 ax.set_xlabel(f"Frequency ({xunit})")
 ax.set_ylabel("Power (dB)")
 ax.set_title("Live PSD")
@@ -223,5 +223,5 @@ def update(frame):
 
 # Animate
 frames = (samples.sample_count - fft_size) // hop_size
-ani = FuncAnimation(fig, update, frames=frames, interval=50, blit=True)
+ani = FuncAnimation(fig, update, frames=frames, interval=5, blit=True)
 plt.show()
