@@ -55,6 +55,38 @@ class iq_samples:
         """
         return self._modified(data = self.data - np.mean(self.data))
 
+    def normalize_percentile(self, p: float = 95.0, *, min_threshold: float = 0.0, min_threshold_percentile: float = 0.0) -> 'iq_samples':
+        """
+        Normalizes the samples so the absolute value is 1.0 at p95 (or some other value), excluding values less than some value (given as an absolute value or a percentile).
+        
+        :param p: Percentile to normalize to 1
+        :type p: float
+        :param min_threshold: Value below which does not count in the percentile.
+        :type min_threshold: float
+        :param min_threshold_percentile: Global percentile to not count
+        :type min_threshold_percentile: float
+        :return: An `iq_samples` with the normalization applied
+        :rtype: iq_samples
+        """
+        trimmed_data = np.abs(self.data)
+
+        if min_threshold_percentile > 0.0:
+            if min_threshold > 0.0:
+                raise ValueError("min_threshold must be zero if min_threshold_percentiles is positive")
+            min_threshold = np.nanpercentile(trimmed_data, min_threshold_percentile)
+
+        if min_threshold > 0.0:
+            trimmed_data = trimmed_data[trimmed_data <= min_threshold]
+
+        if trimmed_data.size == 0:
+            raise ValueError("No data left after thresholding; cannot compute percentile.")
+
+        scale = np.nanpercentile(trimmed_data, p)
+        if scale == 0:
+            raise ValueError("Percentile value is zero; cannot normalize.")
+
+        return self._modified(data=self.data / scale)
+
     def low_pass(self, numtaps:int, bandwidth:float) -> 'iq_samples':
         """
         Applies an FIR low-pass filter around the center frequency.
