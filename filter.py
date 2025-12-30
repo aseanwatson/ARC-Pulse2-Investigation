@@ -121,7 +121,7 @@ class iq_samples:
         """
         return self._modified(data = self.data[::decimation_factor], fs=self.fs/decimation_factor)
 
-    def save_to_float32(self, base):
+    def save_to_cf32(self, base):
         """
         Saves samples as a cf32 file. This is used for input to gqrx or inspectrum, for example.
         
@@ -160,20 +160,20 @@ samples = iq_samples.load_int8(
     fs = 20e6,
     fc = 433.125e6)
 
-samples.save_to_float32('raw')
+#samples.save_to_cf32('raw')
 # shift from fc_capture to fc
 samples = samples.recenter(fc)
-samples.save_to_float32('shifted')
+#samples.save_to_cf32('shifted')
 #dc correct by removing the mean
 samples=samples.dc_correct()
-samples.save_to_float32('dc_corrected')
+#samples.save_to_cf32('dc_corrected')
 
 # do a low-pass filter to focus on the signal
 samples = samples.low_pass(numtaps=numtaps, bandwidth=fd)
-samples.save_to_float32('filtered')
+#samples.save_to_cf32('filtered')
 
 samples = samples.decimate(decim)
-samples.save_to_float32('decimated')
+samples.save_to_cf32('decimated')
 
 psd_history = []
 
