@@ -21,7 +21,7 @@ logging.basicConfig(
 fc = 433.92e6
 fd = 80e3
 fft_size = 32768
-hop_size = fft_size // 8  # overlap
+hop_size = fft_size // 2  # overlap
 n_max = 100  # number of frames to track
 decim = 2
 
@@ -211,32 +211,49 @@ for frame in range(frames):
 psd_frames = np.array(psd_frames)
 frames = len(psd_frames)
 
+# Frequency axis centered at fc
+freqs = np.fft.fftshift(np.fft.fftfreq(fft_size, d=1/samples.fs)) + samples.fc
+
 xscale=1e6
 xunit='MHz'
 
+num_frames = len(psd_frames)
+
+# ------------------------------------------------------------
 # Prepare plot
+# ------------------------------------------------------------
+
 fig, ax = plt.subplots()
+plt.subplots_adjust(bottom=0.25)  # room for slider
+
 line, = ax.plot([], [], lw=1, label="Current PSD")
-max_line, = ax.plot([], [], lw=1, color='red', alpha=0.6, label=f"Max over last {n_max}")
-time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes, fontsize=10, color='gray')
+max_line, = ax.plot([], [], lw=1, color='red', alpha=0.6,
+                    label=f"Max over last {n_max}")
+time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes,
+                    fontsize=10, color='gray')
+
 ax.legend()
 ax.set_ylim(50, 120)
 ax.set_xlabel(f"Frequency ({xunit})")
 ax.set_ylabel("Power (dB)")
-ax.set_title("Live PSD")
+ax.set_title("PSD Viewer (Slider Only)")
 
-# Frequency axis centered at fc
-freqs = np.fft.fftshift(np.fft.fftfreq(fft_size, d=1/samples.fs)) + samples.fc
+ax.set_xlim((samples.fc - fd*3/2)/xscale,
+            (samples.fc + fd*3/2)/xscale)
 
-# Set axis limits to fc ± fd/2
-ax.set_xlim((samples.fc - fd*3/2)/xscale, (samples.fc + fd*3/2)/xscale)
+# ------------------------------------------------------------
+# Core draw function
+# ------------------------------------------------------------
 
-# Animation update function
-def update(frame):
-    start = frame * hop_size
-    current_time = start * 1e3 / samples.fs  # in ms
-    time_text.set_text(f"Time: {current_time: 4.0f}ms; frame: {frame: 4d}")
+def draw_frame(frame):
+    frame = int(frame)
 
+    # Time annotation
+    start_sample = frame * hop_size
+    current_time = start_sample * 1e3 / samples.fs
+    time_text.set_text(f"Time: {current_time:4.0f} ms; frame: {frame:4d}")
+
+    # Current PSD
     psd = psd_frames[frame]
     line.set_data(freqs/xscale, psd)
 
@@ -245,9 +262,25 @@ def update(frame):
     max_psd = np.max(psd_frames[start:frame+1], axis=0)
     max_line.set_data(freqs/xscale, max_psd)
 
-    return line, max_line, time_text
+    fig.canvas.draw_idle()
 
-# Animate
-frames = (samples.sample_count - fft_size) // hop_size
-ani = FuncAnimation(fig, update, frames=frames, interval=5, blit=True)
+# ------------------------------------------------------------
+# Slider
+# ------------------------------------------------------------
+
+ax_slider = plt.axes([0.15, 0.1, 0.7, 0.03])
+slider = Slider(ax_slider, "Frame", 0, num_frames - 1,
+                valinit=0, valstep=1)
+
+def on_slider(val):
+    draw_frame(val)
+
+slider.on_changed(on_slider)
+
+# ------------------------------------------------------------
+# Initial draw
+# ------------------------------------------------------------
+
+draw_frame(0)
+
 plt.show()
