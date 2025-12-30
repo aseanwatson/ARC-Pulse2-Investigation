@@ -8,9 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 fc = 433.92e6
-fc_capture = 433.125e6
 fd = 200e3
-fs = 20e6  # sample rate
 fft_size = 32768 // 16
 hop_size = fft_size // 2  # overlap
 n_max = 10  # number of frames to track
