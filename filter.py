@@ -54,38 +54,42 @@ class iq_samples:
     def decimate(self, decimation_factor):
         return self.modified(data = self.data[::decimation_factor])
 
-def load_hackrf_iq(path):
-    raw = np.fromfile(path, dtype=np.int8)
-    print(f'loaded {len(raw)} samples from {path}:')
-    iq = raw.reshape(-1, 2)
-    return (iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32)) / 128.0
+    def save_to_float32(self, base):
+        path = f'generated/{base}.cf32'
+        print(f'saving {len(self.data)} samples to {path}:')
+        interleaved = np.empty(2 * len(self.data), dtype=np.float32)
+        interleaved[0::2] = self.data.real.astype(np.float32)
+        interleaved[1::2] = self.data.imag.astype(np.float32)
+        interleaved.tofile(path)
 
-def save_to_gqrx_float32(x, base):
-    path = f'generated/{base}.cf32'
-    print(f'saving {len(x)} samples to {path}:')
-    interleaved = np.empty(2 * len(x), dtype=np.float32)
-    interleaved[0::2] = x.real.astype(np.float32)
-    interleaved[1::2] = x.imag.astype(np.float32)
-    interleaved.tofile(path)
+    def load_int8(path, fs, fc):
+        raw = np.fromfile(path, dtype=np.int8)
+        print(f'loaded {len(raw)//2} samples from {path}:')
+        iq = raw.reshape(-1, 2)
+        return iq_samples(
+            data = iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32) / 128.0,
+            fs = fs,
+            fc = fc)
 
-samples = iq_samples(
-    data = load_hackrf_iq('data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq'),
+samples = iq_samples.load_int8(
+    path = 'data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq',
     fs = 20e6,
     fc = 433.125e6)
-save_to_gqrx_float32(samples.data, 'raw')
+
+samples.save_to_float32('raw')
 # shift from fc_capture to fc
 samples = samples.recenter(fc)
-save_to_gqrx_float32(samples.data, 'shifted')
+samples.save_to_float32('shifted')
 #dc correct by removing the mean
 samples=samples.dc_correct()
-save_to_gqrx_float32(samples.data, 'dc_corrected')
+samples.save_to_float32('dc_corrected')
 
 # do a low-pass filter to focus on the signal
 samples = samples.low_pass(numtaps=numtaps, bandwidth=fd)
-save_to_gqrx_float32(samples.data, 'filtered')
+samples.save_to_float32('filtered')
 
 samples = samples.decimate(decim)
-save_to_gqrx_float32(samples.data, 'decimated')
+samples.save_to_float32('decimated')
 
 psd_history = []
 
