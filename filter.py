@@ -66,6 +66,7 @@ class iq_samples:
         interleaved[1::2] = self.data.imag.astype(np.float32)
         interleaved.tofile(path)
 
+    @staticmethod
     def load_int8(path, fs, fc):
         raw = np.fromfile(path, dtype=np.int8)
         print(f'loaded {len(raw)//2} samples from {path}:')
