@@ -24,6 +24,10 @@ class iq_samples:
         self.fs = fs
         self.fc = fc
 
+    @property
+    def sample_count(self):
+        return len(self.data)
+
     def modified(self, data = None, fs = None, fc = None):
         if data is None:
             data = self.data
@@ -35,7 +39,7 @@ class iq_samples:
 
     def recenter(self, fc_new):
         return self.modified(
-            data = self.data * np.exp(-2j * np.pi * (fc - self.fc) * np.arange(len(self.data)) / self.fs),
+            data = self.data * np.exp(-2j * np.pi * (fc - self.fc) * np.arange(self.sample_count) / self.fs),
             fc = fc_new)
 
     def dc_correct(self):
@@ -56,8 +60,8 @@ class iq_samples:
 
     def save_to_float32(self, base):
         path = f'generated/{base}.cf32'
-        print(f'saving {len(self.data)} samples to {path}:')
-        interleaved = np.empty(2 * len(self.data), dtype=np.float32)
+        print(f'saving {self.sample_count} samples to {path}:')
+        interleaved = np.empty(2 * self.sample_count, dtype=np.float32)
         interleaved[0::2] = self.data.real.astype(np.float32)
         interleaved[1::2] = self.data.imag.astype(np.float32)
         interleaved.tofile(path)
@@ -135,6 +139,6 @@ def update(frame):
     return line, max_line, time_text
 
 # Animate
-frames = (len(samples.data) - fft_size) // hop_size
+frames = (samples.sample_count - fft_size) // hop_size
 ani = FuncAnimation(fig, update, frames=frames, interval=50, blit=True)
 plt.show()
