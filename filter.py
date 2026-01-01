@@ -221,8 +221,8 @@ samples.save_to_cf32('filtered')
 
 #samples=samples.normalize_percentile(95, min_threshold_percentile=10)
 #samples.save_to_cf32('normalized')
-def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
 
+def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
     # ------------------------------------------------------------
     # Parameters
     # ------------------------------------------------------------
@@ -301,30 +301,30 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
     ax_wf.set_ylabel("Time (ms)")
 
     # ------------------------------------------------------------
-    # Render waterfall for visible time window
+    # Pixel‑driven dynamic waterfall rendering
     # ------------------------------------------------------------
     def render_waterfall():
         ymin, ymax = ax_wf.get_ylim()
 
-        # Convert ms → frame indices
-        f0 = int((ymin / 1e3) * samples.fs / hop_size)
-        f1 = int((ymax / 1e3) * samples.fs / hop_size)
-
-        f0 = max(0, f0)
-        f1 = min(max_frames - 1, f1)
-
-        rows = []
-        times = []
-
-        for frame in range(f0, f1 + 1):
-            psd = compute_psd_frame(frame)
-            if psd is not None:
-                rows.append(psd)
-                t_ms = frame * hop_size / samples.fs * 1e3
-                times.append(t_ms)
-
-        if len(rows) == 0:
+        # Number of vertical pixels
+        height_px = int(im.get_window_extent().height)
+        if height_px < 2:
             return
+
+        # Time samples for each pixel row
+        times_ms = np.linspace(ymin, ymax, height_px)
+
+        # Convert to frame indices
+        frame_indices = (times_ms / 1e3 * samples.fs / hop_size).astype(int)
+        frame_indices = np.clip(frame_indices, 0, max_frames - 1)
+
+        # Compute PSD rows
+        rows = []
+        for f in frame_indices:
+            psd = compute_psd_frame(f)
+            if psd is None:
+                psd = np.zeros_like(freqs)
+            rows.append(psd)
 
         block = np.vstack(rows)
 
@@ -335,7 +335,7 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
         ax_psd.set_ylim(vmin, vmax)
 
         im.set_data(block)
-        im.set_extent([freqs[0], freqs[-1], times[0], times[-1]])
+        im.set_extent([freqs[0], freqs[-1], ymin, ymax])
         fig.canvas.draw_idle()
 
     # ------------------------------------------------------------
@@ -377,8 +377,13 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
     # Redraw waterfall on zoom/pan
     # ------------------------------------------------------------
     def on_ylimits_change(event_ax):
-        if event_ax is ax_wf:
-            render_waterfall()
+        if event_ax is not ax_wf:
+            return
+
+        if getattr(ax_wf, "_updating_limits", False):
+            return
+
+        render_waterfall()
 
     # ------------------------------------------------------------
     # Prevent x-axis scroll/zoom
@@ -388,14 +393,25 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
             if event_ax.get_xlim() != (freqs[0], freqs[-1]):
                 event_ax.set_xlim(freqs[0], freqs[-1])
 
+    # ------------------------------------------------------------
+    # Re-render on window resize (DPI or size change)
+    # ------------------------------------------------------------
+    def on_resize(event):
+        render_waterfall()
+
+    fig.canvas.mpl_connect('resize_event', on_resize)
     ax_wf.callbacks.connect("ylim_changed", on_ylimits_change)
     ax_wf.callbacks.connect("xlim_changed", on_xlimits_change)
+
+    initial_window = samples.sample_count / samples.fs * 1e3
 
     # ------------------------------------------------------------
     # Initial view
     # ------------------------------------------------------------
-    ax_wf.set_ylim(0, samples.sample_count / samples.fs * 1e3)  # ms window to start
-    ax_wf.set_autoscale_on(False)
+    ax_wf._updating_limits = True
+    ax_wf.set_ylim(0, initial_window)
+    del ax_wf._updating_limits
+
     ax_wf.set_xlim(freqs[0], freqs[-1])
     ax_psd.set_xlim(freqs[0], freqs[-1])
     render_waterfall()
