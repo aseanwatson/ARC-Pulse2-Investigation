@@ -335,6 +335,9 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
         # Adaptive contrast
         vmin = np.percentile(block, 5)
         vmax = np.percentile(block, 95)
+        if vmax - vmin < 1.0e-2:
+            vmax = vmin + 1.0e-2
+
         im.set_clim(vmin, vmax)
         ax_psd.set_ylim(vmin, vmax)
 
