@@ -9,9 +9,11 @@ from scipy.signal.windows import blackmanharris
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.widgets import Button, Slider
+from matplotlib.widgets import Button, Slider, Cursor
 
 import logging
+
+from functools import lru_cache
 
 logging.basicConfig(
     level=logging.INFO,
@@ -219,69 +221,61 @@ samples.save_to_cf32('filtered')
 
 #samples=samples.normalize_percentile(95, min_threshold_percentile=10)
 #samples.save_to_cf32('normalized')
-
-def draw_waterfall_and_psd(samples:iq_samples, xw = 30e3):
-    xscale=1e6
-    xunit='MHz'
+def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
 
     # ------------------------------------------------------------
-    # Build zoomed-band frequency mask
+    # Parameters
     # ------------------------------------------------------------
+    fft_size = 1 << 14
+    hop_size = fft_size // 64
+    n_max = 50
+    xscale = 1e6
+    xunit = "MHz"
 
-    # Full FFT frequency axis (Hz → scaled)
+    # ------------------------------------------------------------
+    # Frequency mask for zoomed band
+    # ------------------------------------------------------------
     freqs_full = np.fft.fftshift(np.fft.fftfreq(fft_size, d=1/samples.fs)) + samples.fc
     freqs_scaled_full = freqs_full / xscale
 
-    # Zoomed band: fc ± xw*fd/2
     f_lo = (samples.fc - xw) / xscale
     f_hi = (samples.fc + xw) / xscale
-
     mask = (freqs_scaled_full >= f_lo) & (freqs_scaled_full <= f_hi)
-
-    # Slice frequency axis
     freqs = freqs_scaled_full[mask]
 
+    # Total number of possible frames
+    max_frames = (samples.sample_count - fft_size) // hop_size
+
     # ------------------------------------------------------------
-    # Precompute PSD frames (sliced to zoomed band)
+    # LRU‑cached PSD computation
     # ------------------------------------------------------------
+    @lru_cache(maxsize=5000)
+    def compute_psd_frame(frame_index: int):
+        """Return PSD slice for a single frame (zoomed band)."""
+        logging.info(f'computing psd for frame {frame_index} (sample_index = {frame_index * hop_size}; time = {(frame_index * hop_size)/samples.fs})')
+        if frame_index < 0 or frame_index >= max_frames:
+            logging.info(f'frame {frame_index} out of valid range (0 - {max_frames})')
+            return None
 
-    frames = (samples.sample_count - fft_size) // hop_size
-
-    psd_frames = []
-    for frame in range(frames):
-        if frame % 1000 == 0:
-            logging.info(f"Precomputing frame {frame}/{frames}")
-
-        start = frame * hop_size
+        start = frame_index * hop_size
         chunk = samples.data[start:start+fft_size]
         if len(chunk) < fft_size:
-            break
+            return None
 
         windowed = chunk * blackmanharris(len(chunk))
         psd_full = 20 * np.log10(np.abs(np.fft.fftshift(np.fft.fft(windowed))) + 1e-12)
-
-        # ✅ Slice to zoomed band
-        psd_frames.append(psd_full[mask])
-
-    psd_frames = np.array(psd_frames)
-    num_frames = len(psd_frames)
-
-    logging.info(f"Waterfall shape: {psd_frames.shape}")
+        return psd_full[mask]
 
     # ------------------------------------------------------------
-    # Create figure: PSD on top, waterfall below
+    # Figure layout
     # ------------------------------------------------------------
-
     fig = plt.figure(figsize=(10, 8))
     gs = fig.add_gridspec(2, 1, height_ratios=[1, 1.5])
 
     ax_psd = fig.add_subplot(gs[0])
     ax_wf  = fig.add_subplot(gs[1])
 
-    # ------------------------------------------------------------
-    # PSD plot setup
-    # ------------------------------------------------------------
-
+    # PSD plot
     line, = ax_psd.plot([], [], lw=1, label="Current PSD")
     max_line, = ax_psd.plot([], [], lw=1, color='red', alpha=0.6,
                             label=f"Max over last {n_max}")
@@ -289,78 +283,126 @@ def draw_waterfall_and_psd(samples:iq_samples, xw = 30e3):
                             fontsize=10, color='gray')
 
     ax_psd.legend()
-    ax_psd.set_ylim(50, 120)
     ax_psd.set_xlabel(f"Frequency ({xunit})")
     ax_psd.set_ylabel("Power (dB)")
-    ax_psd.set_title("PSD")
-
-    # PSD x‑axis = zoomed band
     ax_psd.set_xlim(freqs[0], freqs[-1])
 
-    # ------------------------------------------------------------
-    # Waterfall setup (zoomed band)
-    # ------------------------------------------------------------
-
-    extent = [freqs[0], freqs[-1], 0, num_frames]
-
+    # Waterfall image placeholder
     im = ax_wf.imshow(
-        psd_frames,
+        np.zeros((2, len(freqs))),  # temporary
         aspect='auto',
         origin='lower',
-        extent=extent,
+        extent=[freqs[0], freqs[-1], 0, 1],
         cmap='viridis'
     )
 
-    ax_wf.set_title("Waterfall (click to select frame)")
+    ax_wf.set_title("Waterfall (dynamic)")
     ax_wf.set_xlabel(f"Frequency ({xunit})")
-    ax_wf.set_ylabel("Frame index")
+    ax_wf.set_ylabel("Time (ms)")
 
     # ------------------------------------------------------------
-    # Core draw function
+    # Render waterfall for visible time window
     # ------------------------------------------------------------
+    def render_waterfall():
+        ymin, ymax = ax_wf.get_ylim()
 
-    def draw_frame(frame):
-        frame = int(np.clip(frame, 0, num_frames - 1))
+        # Convert ms → frame indices
+        f0 = int((ymin / 1e3) * samples.fs / hop_size)
+        f1 = int((ymax / 1e3) * samples.fs / hop_size)
 
-        # Time annotation
-        start_sample = frame * hop_size
-        current_time = start_sample * 1e3 / samples.fs
-        time_text.set_text(f"Time: {current_time:4.0f} ms; frame: {frame:4d}")
+        f0 = max(0, f0)
+        f1 = min(max_frames - 1, f1)
 
-        # Current PSD
-        psd = psd_frames[frame]
+        rows = []
+        times = []
+
+        for frame in range(f0, f1 + 1):
+            psd = compute_psd_frame(frame)
+            if psd is not None:
+                rows.append(psd)
+                t_ms = frame * hop_size / samples.fs * 1e3
+                times.append(t_ms)
+
+        if len(rows) == 0:
+            return
+
+        block = np.vstack(rows)
+
+        # Adaptive contrast
+        vmin = np.percentile(block, 5)
+        vmax = np.percentile(block, 95)
+        im.set_clim(vmin, vmax)
+        ax_psd.set_ylim(vmin, vmax)
+
+        im.set_data(block)
+        im.set_extent([freqs[0], freqs[-1], times[0], times[-1]])
+        fig.canvas.draw_idle()
+
+    # ------------------------------------------------------------
+    # PSD update when clicking a time in the waterfall
+    # ------------------------------------------------------------
+    def draw_frame_from_time(t_ms):
+        frame = int((t_ms / 1e3) * samples.fs / hop_size)
+        frame = max(0, min(max_frames - 1, frame))
+
+        psd = compute_psd_frame(frame)
+        if psd is None:
+            return
+
         line.set_data(freqs, psd)
 
-        # Max over last n_max frames
         start = max(0, frame - n_max + 1)
-        max_psd = np.max(psd_frames[start:frame+1], axis=0)
+        max_psd = np.max(
+            [compute_psd_frame(f) for f in range(start, frame+1)],
+            axis=0
+        )
         max_line.set_data(freqs, max_psd)
 
+        time_text.set_text(f"Time: {t_ms:6.1f} ms; frame: {frame}")
         fig.canvas.draw_idle()
 
     # ------------------------------------------------------------
     # Mouse click handler
     # ------------------------------------------------------------
-
     def on_click(event):
         if event.inaxes != ax_wf:
             return
-
-        y = event.ydata
-        if y is None:
+        if event.ydata is None:
             return
-
-        frame = int(y)
-        draw_frame(frame)
+        draw_frame_from_time(event.ydata)
 
     fig.canvas.mpl_connect('button_press_event', on_click)
 
     # ------------------------------------------------------------
-    # Initial draw
+    # Redraw waterfall on zoom/pan
     # ------------------------------------------------------------
+    def on_ylimits_change(event_ax):
+        if event_ax is ax_wf:
+            render_waterfall()
 
-    draw_frame(0)
+    # ------------------------------------------------------------
+    # Prevent x-axis scroll/zoom
+    # ------------------------------------------------------------
+    def on_xlimits_change(event_ax):
+        if event_ax is ax_wf or event_ax is ax_psd:
+            if event_ax.get_xlim() != (freqs[0], freqs[-1]):
+                event_ax.set_xlim(freqs[0], freqs[-1])
+
+    ax_wf.callbacks.connect("ylim_changed", on_ylimits_change)
+    ax_wf.callbacks.connect("xlim_changed", on_xlimits_change)
+
+    # ------------------------------------------------------------
+    # Initial view
+    # ------------------------------------------------------------
+    ax_wf.set_ylim(0, samples.sample_count / samples.fs * 1e3)  # ms window to start
+    ax_wf.set_autoscale_on(False)
+    ax_wf.set_xlim(freqs[0], freqs[-1])
+    ax_psd.set_xlim(freqs[0], freqs[-1])
+    render_waterfall()
+    draw_frame_from_time(0)
+
     plt.show()
+
 
 draw_waterfall_and_psd(samples)
 #samples = samples.time_slice(0.05, 0.05+.105)
