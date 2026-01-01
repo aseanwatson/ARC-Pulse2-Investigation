@@ -392,10 +392,13 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
     # ------------------------------------------------------------
     # Prevent x-axis scroll/zoom
     # ------------------------------------------------------------
-    def on_xlimits_change(event_ax):
+    def on_xlim_changed(event_ax):
         if event_ax is ax_wf or event_ax is ax_psd:
             if event_ax.get_xlim() != (freqs[0], freqs[-1]):
                 event_ax.set_xlim(freqs[0], freqs[-1])
+
+    ax_wf.callbacks.connect("xlim_changed", on_xlim_changed)
+    ax_psd.callbacks.connect("xlim_changed", on_xlim_changed)
 
     # ------------------------------------------------------------
     # Re-render on window resize (DPI or size change)
@@ -404,8 +407,6 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
         render_waterfall()
 
     fig.canvas.mpl_connect('resize_event', on_resize)
-    ax_wf.callbacks.connect("ylim_changed", on_ylimits_change)
-    ax_wf.callbacks.connect("xlim_changed", on_xlimits_change)
 
     initial_window = samples.sample_count / samples.fs * 1e3
 
