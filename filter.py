@@ -251,8 +251,12 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
     # ------------------------------------------------------------
     @lru_cache(maxsize=5000)
     def compute_psd_frame(frame_index: int):
-        """Return PSD slice for a single frame (zoomed band)."""
-        logging.info(f'computing psd for frame {frame_index} (sample_index = {frame_index * hop_size}; time = {(frame_index * hop_size)/samples.fs})')
+        logging.info(
+            f'computing psd for frame {frame_index} '
+            f'(sample_index = {frame_index * hop_size}; '
+            f'time = {(frame_index * hop_size)/samples.fs})'
+        )
+
         if frame_index < 0 or frame_index >= max_frames:
             logging.info(f'frame {frame_index} out of valid range (0 - {max_frames})')
             return None
