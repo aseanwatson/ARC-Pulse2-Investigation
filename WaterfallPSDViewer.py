@@ -2,17 +2,17 @@ from typing import Optional
 
 from iq_samples import iq_samples
 
+import numpy as np
 
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+
 from scipy.signal.windows import blackmanharris
 
-
 import logging
-from functools import lru_cache
 
+from functools import lru_cache
 
 class WaterfallPSDViewer:
     """
@@ -20,11 +20,13 @@ class WaterfallPSDViewer:
 
     All navigation (zoom, pan, click-to-select) is expressed in terms of
     integer sample indices. The y-axis is derived from the current visible
-    sample window and is never used as the source of truth.
+    sample window; it is not used as the source of truth.
 
-    Features:
-    - Pixel-driven dynamic waterfall rendering
-    - LRU-cached PSD frames
+    This version has:
+    - Fixed FFT size (no adaptive FFT yet)
+    - Pixel-driven dynamic waterfall (one PSD row per vertical pixel)
+    - PSDs computed directly at arbitrary sample indices
+    - LRU-cached PSDs keyed by FFT start sample index
     - Sample-indexed zoom (mouse wheel)
     - Sample-indexed pan (click-drag)
     - Click-to-select PSD
@@ -39,7 +41,8 @@ class WaterfallPSDViewer:
         Parameters
         ----------
         samples : iq_samples
-            IQ buffer with fields: data, fs, fc, sample_count.
+            IQ buffer with fields: data (np.ndarray), fs (float),
+            fc (float), sample_count (int).
         xw : float
             Half-width of frequency span to display (Hz).
         """
@@ -49,14 +52,13 @@ class WaterfallPSDViewer:
         self.data: np.ndarray = samples.data
         self.total_samples: int = samples.sample_count
 
-        # DSP parameters
-        self.fft_size: int = 1 << 14
-        self.hop_size: int = self.fft_size // 64
+        # DSP parameters (fixed for now; adaptive FFT comes later)
+        self.fft_size: int = 1 << 14  # 16384
         self.n_max: int = 50
         self.xscale: float = 1e6
         self.xunit: str = "MHz"
 
-        # Frequency mask
+        # Frequency mask for zoomed band
         freqs_full = np.fft.fftshift(np.fft.fftfreq(self.fft_size, d=1/self.fs)) + self.fc
         freqs_scaled = freqs_full / self.xscale
 
@@ -65,16 +67,14 @@ class WaterfallPSDViewer:
         self.mask = (freqs_scaled >= f_lo) & (freqs_scaled <= f_hi)
         self.freqs: np.ndarray = freqs_scaled[self.mask]
 
-        # Frame count
-        self.max_frames: int = (self.total_samples - self.fft_size) // self.hop_size
-
         # Navigation state (sample-indexed)
         self.zoom_level: int = 0
         self.min_visible_sample: int = 0
 
-        # Build UI
+        # UI + interaction state
         self._build_figure()
         self._connect_events()
+        self._pan = {"press_sample": None, "orig_min": None}
 
         # Initial view = full capture
         self.render_waterfall()
@@ -83,34 +83,34 @@ class WaterfallPSDViewer:
         plt.show()
 
     # ------------------------------------------------------------
-    # PSD computation (LRU cached)
+    # PSD computation (LRU cached, keyed by FFT start sample index)
     # ------------------------------------------------------------
     @lru_cache(maxsize=5000)
-    def compute_psd_frame(self, frame_index: int) -> Optional[np.ndarray]:
+    def compute_psd_at_sample(self, start_sample: int) -> Optional[np.ndarray]:
         """
-        Compute PSD for a single STFT frame, masked to the zoomed frequency band.
+        Compute PSD for a window starting at a given sample index.
 
         Parameters
         ----------
-        frame_index : int
-            Index of the STFT frame.
+        start_sample : int
+            Start index of the FFT window in the IQ buffer.
 
         Returns
         -------
         np.ndarray or None
-            PSD slice for the masked frequency region.
+            PSD slice for the masked frequency region, or None if
+            start_sample is out of range.
         """
-        logging.info(
-            f"computing psd for frame {frame_index} "
-            f"(sample_index = {frame_index * self.hop_size}; "
-            f"time = {(frame_index * self.hop_size)/self.fs})"
-        )
-
-        if frame_index < 0 or frame_index >= self.max_frames:
+        if start_sample < 0 or start_sample + self.fft_size > self.total_samples:
             return None
 
-        start = frame_index * self.hop_size
-        chunk = self.data[start:start+self.fft_size]
+        logging.info(
+            "computing psd at start_sample=%d (time=%f s)",
+            start_sample,
+            start_sample / self.fs,
+        )
+
+        chunk = self.data[start_sample:start_sample + self.fft_size]
         if len(chunk) < self.fft_size:
             return None
 
@@ -124,7 +124,9 @@ class WaterfallPSDViewer:
     def _build_figure(self) -> None:
         """Create the Matplotlib figure and axes."""
         self.fig: Figure = plt.figure(figsize=(10, 8))
-        self.fig.canvas.toolbar_visible = False
+        # Hide toolbar/navigation buttons
+        if hasattr(self.fig.canvas, "toolbar_visible"):
+            self.fig.canvas.toolbar_visible = False
 
         gs = self.fig.add_gridspec(2, 1, height_ratios=[1, 1.5])
         self.ax_psd: Axes = self.fig.add_subplot(gs[0])
@@ -169,8 +171,6 @@ class WaterfallPSDViewer:
 
         self.ax_wf.callbacks.connect("xlim_changed", self.on_xlim_changed)
         self.ax_psd.callbacks.connect("xlim_changed", self.on_xlim_changed)
-
-        self._pan = {"press_sample": None, "orig_min": None}
 
     # ------------------------------------------------------------
     # Navigation helpers (sample-indexed)
@@ -218,7 +218,7 @@ class WaterfallPSDViewer:
 
         # Compute new min_visible_sample so fixed_sample stays anchored
         old_offset = fixed_sample - self.min_visible_sample
-        zoom_ratio = new_vis / old_vis
+        zoom_ratio = new_vis / old_vis if old_vis > 0 else 1.0
         new_offset = int(old_offset * zoom_ratio)
 
         new_min = fixed_sample - new_offset
@@ -230,6 +230,12 @@ class WaterfallPSDViewer:
     def render_waterfall(self) -> None:
         """
         Render the waterfall image based on current sample-indexed view state.
+
+        This is pixel-driven:
+        - Determine visible sample range from zoom/min_visible_sample
+        - Map each vertical pixel row to a start_sample for an FFT
+        - Compute (or fetch cached) PSD at that sample
+        - Stack rows into an image
         """
         vis = self.visible_samples()
         y0 = (self.min_visible_sample / self.fs) * 1e3
@@ -245,24 +251,24 @@ class WaterfallPSDViewer:
         if height_px < 2:
             return
 
-        # Samples per pixel
+        # Samples per pixel row
         samples_per_pixel = vis / height_px
         samples_per_pixel = max(1, samples_per_pixel)
 
-        # Sample index for each row
+        # Sample index for each row (FFT start index)
         row_samples = (
             self.min_visible_sample +
             np.arange(height_px) * samples_per_pixel
         ).astype(int)
 
-        row_samples = np.clip(row_samples, 0, self.total_samples - 1)
-        frame_indices = row_samples // self.hop_size
-        frame_indices = np.clip(frame_indices, 0, self.max_frames - 1)
+        # Clamp FFT windows to valid start positions
+        max_start = max(0, self.total_samples - self.fft_size)
+        row_samples = np.clip(row_samples, 0, max_start)
 
         # Compute PSD rows
         rows = []
-        for f in frame_indices:
-            psd = self.compute_psd_frame(f)
+        for start_sample in row_samples:
+            psd = self.compute_psd_at_sample(start_sample)
             if psd is None:
                 psd = np.zeros_like(self.freqs)
             rows.append(psd)
@@ -294,39 +300,56 @@ class WaterfallPSDViewer:
         sample_index : int
             Sample index to display PSD for.
         """
-        frame = sample_index // self.hop_size
-        frame = max(0, min(frame, self.max_frames - 1))
+        # Align to a valid FFT start index
+        start_sample = int(sample_index)
+        max_start = max(0, self.total_samples - self.fft_size)
+        start_sample = max(0, min(start_sample, max_start))
 
-        psd = self.compute_psd_frame(frame)
+        psd = self.compute_psd_at_sample(start_sample)
         if psd is None:
             return
 
         self.line.set_data(self.freqs, psd)
 
-        start = max(0, frame - self.n_max + 1)
-        max_psd = np.max(
-            [self.compute_psd_frame(f) for f in range(start, frame+1)],
-            axis=0
+        # Max-hold over last n_max neighboring windows (by sample)
+        # Step size: half FFT window for now
+        step = max(1, self.fft_size // 2)
+        starts = np.arange(
+            max(0, start_sample - step * (self.n_max - 1)),
+            start_sample + step,
+            step,
+            dtype=int,
         )
-        self.max_line.set_data(self.freqs, max_psd)
+        starts = np.clip(starts, 0, max_start)
+
+        max_rows = []
+        for s in starts:
+            p = self.compute_psd_at_sample(int(s))
+            if p is not None:
+                max_rows.append(p)
+
+        if max_rows:
+            max_psd = np.max(np.vstack(max_rows), axis=0)
+            self.max_line.set_data(self.freqs, max_psd)
 
         t_ms = (sample_index / self.fs) * 1e3
-        self.time_text.set_text(f"Time: {t_ms:6.1f} ms; frame: {frame}")
+        self.time_text.set_text(f"Time: {t_ms:6.1f} ms; start: {start_sample}")
         self.fig.canvas.draw_idle()
 
     # ------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------
     def on_click(self, event) -> None:
-        """Click-to-select PSD."""
+        """Click-to-select PSD at the clicked time."""
         if event.inaxes != self.ax_wf or event.ydata is None:
             return
         sample = int((event.ydata / 1e3) * self.fs)
+        sample = max(0, min(sample, self.total_samples - 1))
         self.draw_frame_from_sample(sample)
 
     def on_scroll(self, event) -> None:
         """Mouse wheel zoom (sample-indexed)."""
-        if event.inaxes != self.ax_wf:
+        if event.inaxes != self.ax_wf or event.ydata is None:
             return
 
         fixed_sample = int((event.ydata / 1e3) * self.fs)
@@ -338,13 +361,13 @@ class WaterfallPSDViewer:
 
     def on_press(self, event) -> None:
         """Start panning."""
-        if event.inaxes == self.ax_wf and event.button == 1:
+        if event.inaxes == self.ax_wf and event.button == 1 and event.ydata is not None:
             self._pan["press_sample"] = int((event.ydata / 1e3) * self.fs)
             self._pan["orig_min"] = self.min_visible_sample
 
     def on_motion(self, event) -> None:
         """Continue panning."""
-        if self._pan["press_sample"] is None or event.inaxes != self.ax_wf:
+        if self._pan["press_sample"] is None or event.inaxes != self.ax_wf or event.ydata is None:
             return
 
         current_sample = int((event.ydata / 1e3) * self.fs)
