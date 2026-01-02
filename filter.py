@@ -381,18 +381,6 @@ def draw_waterfall_and_psd(samples: iq_samples, xw=30e3):
     fig.canvas.mpl_connect('button_press_event', on_click)
 
     # ------------------------------------------------------------
-    # Redraw waterfall on zoom/pan
-    # ------------------------------------------------------------
-    def on_ylimits_change(event_ax):
-        if event_ax is not ax_wf:
-            return
-
-        if getattr(ax_wf, "_updating_limits", False):
-            return
-
-        render_waterfall()
-
-    # ------------------------------------------------------------
     # Prevent x-axis scroll/zoom
     # ------------------------------------------------------------
     def on_xlim_changed(event_ax):
