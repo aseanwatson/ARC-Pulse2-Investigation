@@ -116,6 +116,10 @@ class BaseSamples:
         arr = np.abs(self.data).astype(np.float32)
         return RealSamples(arr, fs=self.fs)
 
+    def threshold(self, threshold: float) -> NDArray[np.bool]:
+        """Return a boolean array where samples exceed the given `threshold`."""
+        return np.abs(self.data) >= threshold
+
 class ComplexSamples(BaseSamples):
     """Samples container for complex-valued signals."""
 
@@ -160,6 +164,10 @@ class RealSamples(BaseSamples):
             assert fs is not None
             super().__init__(data=data, fs=fs)
         self.data: NDArray[np.float32] = self.data.astype(np.float32)
+
+    def percentile(self, p: float) -> float:
+        """Return the `p`th percentile of the sample values."""
+        return np.percentile(self.data, p)
 
 class AngleSamples(RealSamples):
     """Angle (phase) samples derived from complex signals."""

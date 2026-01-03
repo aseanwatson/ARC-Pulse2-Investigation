@@ -16,10 +16,6 @@ logging.basicConfig(
 fc = 433.92e6
 fc = 433.9214288e6 # read from waterfall
 fd = 10e3
-fft_size = 1 << 14
-hop_size = fft_size // 2  # overlap
-n_max = 100  # number of frames to track
-decim = 8
 
 numtaps = 9001  # long enough for steep transition
 
@@ -34,11 +30,8 @@ samples.save_to_cf32('raw')
 samples = samples.time_slice(0.215, 0.340)
 samples.save_to_cf32('trimmed')
 
-# samples = samples.decimate(decim)
+# samples = samples.decimate(8)
 # samples.save_to_cf32('decimated')
-# fft_size //= decim
-# hop_size //= decim
-# n_max //= decim
 
 # shift from fc_capture to fc
 samples = samples.recenter(fc)
@@ -56,13 +49,3 @@ samples.save_to_cf32('filtered')
 #samples.save_to_cf32('normalized')
 
 WaterfallPSDViewer(samples)
-#samples = samples.time_slice(0.05, 0.05+.105)
-fig = plt.figure(figsize=(10, 8))
-gs = fig.add_gridspec(nrows=1)
-ax_f_inst = fig.add_subplot(gs[0])
-t = samples.time()
-dphi = np.angle(samples.data[1:] * np.conjugate(samples.data[:-1]))
-f_inst_raw = samples.fs / (np.pi * 2) * dphi
-f_inst = f_inst_raw - np.mean(f_inst_raw)
-ax_f_inst.scatter(t[:-1] * 1e3, f_inst, s=1) # plot in ms
-plt.show()

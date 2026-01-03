@@ -250,25 +250,29 @@ class WaterfallPSDViewer:
         # PSD width = 1/5 of waterfall -> width_ratios = [5, 1]
         # status height = 3% of waterfall -> height_ratios = [3, 100]
         gs = self.fig.add_gridspec(
-            2, 2,
+            3, 2,
             width_ratios=[1, 0.18],
-            height_ratios=[0.02, 1],
+            height_ratios=[30, 1, 69],
             wspace=0.02,
             hspace=0.02,
         )
 
         # Waterfall axis: bottom-left
-        self.ax_wf = self.fig.add_subplot(gs[1, 0])
+        self.ax_wf = self.fig.add_subplot(gs[2, 0])
 
-        # Status axis: top-left (above waterfall), share X with waterfall
-        self.ax_status = self.fig.add_subplot(gs[0, 0], sharex=self.ax_wf)
+        # Status axis: center-left (above waterfall), share X with waterfall
+        self.ax_status = self.fig.add_subplot(gs[1, 0], sharex=self.ax_wf)
         # hide the status axis entirely (so it doesn't suppress shared ticks)
         self.ax_status.xaxis.set_visible(False)
         self.ax_status.yaxis.set_visible(False)
         self.ax_status.set_title("")
+        self.ax_status.set_frame_on(False)
+
+        self.ax_finst = self.fig.add_subplot(gs[0, 0], sharex=self.ax_wf)
+        self.ax_finst.xaxis.set_visible(False)
 
         # PSD axis: bottom-right (right of waterfall), share Y with waterfall
-        self.ax_psd = self.fig.add_subplot(gs[1, 1], sharey=self.ax_wf)
+        self.ax_psd = self.fig.add_subplot(gs[2, 1], sharey=self.ax_wf)
         self.ax_psd.set_title("")
         # Hide PSD y-axis (frequency shown on waterfall only)
         self.ax_psd.yaxis.set_visible(False)
@@ -299,6 +303,17 @@ class WaterfallPSDViewer:
             cmap="viridis",
         )
 
+        decimated = self.samples.decimate(10)
+        f_inst = decimated.instantaneous_frequency().remove_mean()
+        t_ms = f_inst.time() * 1e3
+        self.finst_plot_signal = self.ax_finst.scatter(
+            t_ms,
+            f_inst.data,
+            s=1)
+
+        ylim_threshold = f_inst.abs().percentile(90) * 1.8
+        self.ax_finst.set_ylim(-ylim_threshold, ylim_threshold)
+
         # ------------------------------------------------------------
         # Cursor line (vertical time cursor)
         # ------------------------------------------------------------
@@ -310,6 +325,8 @@ class WaterfallPSDViewer:
         self.ax_wf.set_ylabel(f"Frequency ({self.xunit})")
         # Ensure x tick labels are visible on the waterfall axis
         self.ax_wf.tick_params(axis="x", labelbottom=True)
+
+        self.ax_finst.set_ylabel("Inst. Freq. (Hz)")
 
         # tighten spacing on layout and set tight margins (avoid tight_layout warnings)
         self.fig.subplots_adjust(
