@@ -248,9 +248,24 @@ class WaterfallPSDViewer:
             self.fig.canvas.toolbar_visible = False
 
         gs = self.fig.add_gridspec(2, 1, height_ratios=[1, 1.5])
-        self.ax_psd: Axes = self.fig.add_subplot(gs[0])
-        self.ax_wf: Axes = self.fig.add_subplot(gs[1])
 
+        # PSD axis (top)
+        self.ax_psd: Axes = self.fig.add_subplot(gs[0])
+        self.ax_psd.set_title("")
+
+        # Hide PSD x-axis visually but keep ticks for shared axis
+        self.ax_psd.tick_params(
+            axis="x",
+            which="both",
+            bottom=False,
+            top=False,
+            labelbottom=False
+        )
+
+        # Waterfall axis (bottom) sharing x-axis
+        self.ax_wf: Axes = self.fig.add_subplot(gs[1], sharex=self.ax_psd)
+
+        # PSD plot
         self.line, = self.ax_psd.plot([], [], lw=1, label="Current PSD")
         self.max_line, = self.ax_psd.plot(
             [], [], lw=1, color="red", alpha=0.6, label=f"Max over last {self.n_max}"
@@ -261,10 +276,9 @@ class WaterfallPSDViewer:
         )
 
         self.ax_psd.legend()
-        self.ax_psd.set_xlabel(f"Frequency ({self.xunit})")
         self.ax_psd.set_ylabel("Power (dB)")
-        self.ax_psd.set_xlim(self.freqs[0], self.freqs[-1])
 
+        # Waterfall image
         self.im = self.ax_wf.imshow(
             np.zeros((2, len(self.freqs))),
             aspect="auto",
@@ -273,9 +287,12 @@ class WaterfallPSDViewer:
             cmap="viridis",
         )
 
-        self.ax_wf.set_title("Waterfall (dynamic)")
+        self.ax_wf.set_title("")
         self.ax_wf.set_xlabel(f"Frequency ({self.xunit})")
         self.ax_wf.set_ylabel("Time (ms)")
+
+        # Compute layout once
+        self.fig.tight_layout()
 
     # ------------------------------------------------------------
     # Event connections
@@ -287,9 +304,6 @@ class WaterfallPSDViewer:
         self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
         self.fig.canvas.mpl_connect("button_release_event", self.on_release)
         self.fig.canvas.mpl_connect("resize_event", self.on_resize)
-
-        self.ax_wf.callbacks.connect("xlim_changed", self.on_xlim_changed)
-        self.ax_psd.callbacks.connect("xlim_changed", self.on_xlim_changed)
 
     # ------------------------------------------------------------
     # Navigation helpers
@@ -430,8 +444,3 @@ class WaterfallPSDViewer:
 
     def on_resize(self, event) -> None:
         self.render_waterfall()
-
-    def on_xlim_changed(self, event_ax: Axes) -> None:
-        if event_ax in (self.ax_wf, self.ax_psd):
-            if event_ax.get_xlim() != (self.freqs[0], self.freqs[-1]):
-                event_ax.set_xlim(self.freqs[0], self.freqs[-1])
