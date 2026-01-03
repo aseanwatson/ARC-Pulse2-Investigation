@@ -1,6 +1,6 @@
 from typing import Optional
 
-from iq_samples import iq_samples
+from IQSamples import IQSamples
 
 import numpy as np
 
@@ -35,7 +35,7 @@ class WaterfallPSDViewer:
     - Resize-aware redraw
     """
 
-    def __init__(self, samples: iq_samples, xw: float = 30e3) -> None:
+    def __init__(self, samples: IQSamples, xw: float = 30e3) -> None:
         self.samples = samples
         self.fs: float = samples.fs
         self.fc: float = samples.fc

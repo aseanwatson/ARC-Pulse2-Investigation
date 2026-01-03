@@ -4,7 +4,7 @@ from scipy.signal import firwin, lfilter
 
 import logging
 
-class iq_samples:
+class IQSamples:
     data: NDArray[np.complex64]
     fs: float
     fc: float
@@ -25,7 +25,7 @@ class iq_samples:
             fs = self.fs
         if fc is None:
             fc = self.fc
-        return iq_samples(data = data, fs = fs, fc = fc)
+        return IQSamples(data = data, fs = fs, fc = fc)
 
     def _time_to_sample(self, time: float) -> int:
         """
@@ -42,7 +42,7 @@ class iq_samples:
     def time(self) -> NDArray[np.float64]:
         return np.arange(len(self.data)) / self.fs
 
-    def recenter(self, fc_new:float) -> 'iq_samples':
+    def recenter(self, fc_new:float) -> 'IQSamples':
         """
         Shifts samples so a new frequency is at the center
 
@@ -56,13 +56,13 @@ class iq_samples:
             data = self.data * np.exp(-2j * np.pi * (fc_new - self.fc) * self.time()),
             fc = fc_new)
 
-    def dc_correct(self) -> 'iq_samples':
+    def dc_correct(self) -> 'IQSamples':
         """
         Subtracts the mean to remove DC bias.
         """
         return self._modified(data = self.data - np.mean(self.data))
 
-    def normalize_percentile(self, p: float = 95.0, *, min_threshold: float = 0.0, min_threshold_percentile: float = 0.0) -> 'iq_samples':
+    def normalize_percentile(self, p: float = 95.0, *, min_threshold: float = 0.0, min_threshold_percentile: float = 0.0) -> 'IQSamples':
         """
         Normalizes the samples so the absolute value is 1.0 at p95 (or some other value), excluding values less than some value (given as an absolute value or a percentile).
 
@@ -94,7 +94,7 @@ class iq_samples:
 
         return self._modified(data=self.data / scale)
 
-    def low_pass(self, numtaps:int, cutoff:float) -> 'iq_samples':
+    def low_pass(self, numtaps:int, cutoff:float) -> 'IQSamples':
         """
         Applies an FIR low-pass filter around the center frequency.
 
@@ -114,7 +114,7 @@ class iq_samples:
         return self._modified(
             data = lfilter(lp_taps, 1.0, self.data))
 
-    def decimate(self, decimation_factor:int) -> 'iq_samples':
+    def decimate(self, decimation_factor:int) -> 'IQSamples':
         """
         Resamples the iq_samples, keeping only one sample per `decimation_factor` samples.
 
@@ -138,13 +138,13 @@ class iq_samples:
         interleaved[1::2] = self.data.imag.astype(np.float32)
         interleaved.tofile(path)
 
-    def time_slice(self, start: float, end:float) -> 'iq_samples':
+    def time_slice(self, start: float, end:float) -> 'IQSamples':
         start_sample = self._time_to_sample(start)
         end_sample = self._time_to_sample(end)
         return self._modified(data=self.data[start_sample:end_sample])
 
     @staticmethod
-    def load_int8(path, fs:float, fc:float) -> 'iq_samples':
+    def load_int8(path, fs:float, fc:float) -> 'IQSamples':
         """
         Docstring for load_int8
 
@@ -159,7 +159,7 @@ class iq_samples:
         raw = np.fromfile(path, dtype=np.int8)
         logging.info(f'loaded {len(raw)//2} samples from {path}:')
         iq = raw.reshape(-1, 2)
-        return iq_samples(
+        return IQSamples(
             data = (iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32)) / 128.0,
             fs = fs,
             fc = fc)

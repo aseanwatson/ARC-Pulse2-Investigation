@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import logging
 
 from WaterfallPSDViewer import WaterfallPSDViewer
-from iq_samples import iq_samples
+from IQSamples import IQSamples
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,7 +23,7 @@ decim = 8
 
 numtaps = 9001  # long enough for steep transition
 
-samples = iq_samples.load_int8(
+samples = IQSamples.load_int8(
     path = 'data/remote_dr2_f433125000_s2000000_a0_l16_g2.iq',
     fs = 20e6,
     fc = 433.125e6)
