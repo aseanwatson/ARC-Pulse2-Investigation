@@ -223,6 +223,21 @@ class IQSamples(ComplexSamples):
 
         return self._modified(data=lfilter(lp_taps, 1.0, self.data))
 
+    def freq_discriminator(self) -> ComplexSamples:
+        """Return the frequency discriminator output as `ComplexSamples`."""
+        return ComplexSamples(
+            data = self.data[1:] * np.conjugate(self.data[:-1]),
+            fs = self.fs)
+
+    def instantaneous_frequency(self) -> RealSamples:
+        """Return the instantaneous frequency as `RealSamples`."""
+        return (
+            self
+                .freq_discriminator()
+                .angle()
+                .scale(self.fs / (2*np.pi))
+            )
+
     def save_to_cf32(self, base: str) -> None:
         """Save interleaved cf32 (float32 I/Q) file to `generated/{base}.cf32`."""
         path = f'generated/{base}.cf32'
