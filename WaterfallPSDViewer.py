@@ -20,7 +20,6 @@ import queue
 
 import logging
 
-
 class WaterfallPSDViewer:
     """
     Interactive SDR-style waterfall + PSD viewer.
@@ -149,11 +148,7 @@ class WaterfallPSDViewer:
     # ------------------------------------------------------------
     # Foreground PSD lookup
     # ------------------------------------------------------------
-    def _foreground_psd(self, start_sample: int) -> np.ndarray:
-        """
-        Return PSD from cache if available.
-        Otherwise return nearest cached PSD or zeros.
-        """
+    def _foreground_psd(self, start_sample: int):
         max_start = max(0, self.total_samples - self.fft_size)
         start_sample = max(0, min(start_sample, max_start))
 
@@ -164,27 +159,29 @@ class WaterfallPSDViewer:
                 self.psd_cache[start_sample] = psd
                 self.last_lookup_key = start_sample
                 self.last_lookup_psd = psd
-                return psd
+                return psd, 0
 
             # Fast-path nearest
             if (
                 self.last_lookup_key is not None
                 and abs(start_sample - self.last_lookup_key) < 2000
             ):
-                return self.last_lookup_psd
+                return self.last_lookup_psd, abs(start_sample - self.last_lookup_key)
 
             # Full nearest scan
             if len(self.psd_cache) > 0:
                 nearest_key = min(
                     self.psd_cache.keys(),
-                    key=lambda k: abs(k - start_sample),
+                    key=lambda k: abs(k - start_sample)
                 )
                 nearest_psd = self.psd_cache[nearest_key]
+                dist = abs(start_sample - nearest_key)
                 self.last_lookup_key = nearest_key
                 self.last_lookup_psd = nearest_psd
-                return nearest_psd
+                return nearest_psd, dist
 
-        return np.zeros_like(self.freqs)
+        # No cache → treat as max distance
+        return np.zeros_like(self.freqs), 2000
 
     # ------------------------------------------------------------
     # Background job: compute all PSDs for current view
@@ -247,13 +244,18 @@ class WaterfallPSDViewer:
         if hasattr(self.fig.canvas, "toolbar_visible"):
             self.fig.canvas.toolbar_visible = False
 
-        gs = self.fig.add_gridspec(2, 1, height_ratios=[1, 1.5])
+        # 2 columns: waterfall + narrow gradient bar
+        gs = self.fig.add_gridspec(
+            2, 2,
+            width_ratios=[1, 0.03],
+            height_ratios=[1, 1.5]
+        )
 
-        # PSD axis (top)
-        self.ax_psd: Axes = self.fig.add_subplot(gs[0])
+        # PSD axis (top-left)
+        self.ax_psd = self.fig.add_subplot(gs[0, 0])
         self.ax_psd.set_title("")
 
-        # Hide PSD x-axis visually but keep ticks for shared axis
+        # Hide PSD x-axis ticks but keep shared axis
         self.ax_psd.tick_params(
             axis="x",
             which="both",
@@ -262,8 +264,22 @@ class WaterfallPSDViewer:
             labelbottom=False
         )
 
-        # Waterfall axis (bottom) sharing x-axis
-        self.ax_wf: Axes = self.fig.add_subplot(gs[1], sharex=self.ax_psd)
+        # Waterfall axis (bottom-left)
+        self.ax_wf = self.fig.add_subplot(gs[1, 0], sharex=self.ax_psd)
+
+        # Gradient bar axis (bottom-right)
+        self.ax_status = self.fig.add_subplot(gs[1, 1])
+        self.ax_status.set_xticks([])
+        self.ax_status.set_yticks([])
+        self.ax_status.set_title("")
+
+        # Initialize gradient image (placeholder) as RGB (height x 1 x 3)
+        self.status_im = self.ax_status.imshow(
+            np.zeros((2, 1, 3), dtype=float),
+            aspect="auto",
+            origin="lower",
+            interpolation="nearest",
+        )
 
         # PSD plot
         self.line, = self.ax_psd.plot([], [], lw=1, label="Current PSD")
@@ -354,7 +370,14 @@ class WaterfallPSDViewer:
         row_samples = np.clip(row_samples, 0, max_start)
 
         # Foreground: approximate PSDs
-        rows = [self._foreground_psd(s) for s in row_samples]
+        rows = []
+        distances = []
+
+        for s in row_samples:
+            psd, dist = self._foreground_psd(s)
+            rows.append(psd)
+            distances.append(dist)
+
         block = np.vstack(rows)
 
         vmin = np.percentile(block, 5)
@@ -364,6 +387,20 @@ class WaterfallPSDViewer:
 
         self.im.set_clim(vmin, vmax)
         self.ax_psd.set_ylim(vmin, vmax)
+
+        # Convert distances → grayscale
+        distances = np.array(distances, dtype=float)
+        distances = np.clip(distances, 0, 2000)
+
+        vals = 1.0 - distances / 2000.0   # 1 = white, 0 = black
+
+        # Convert to RGB (height_px × 1 × 3)
+        status_img = np.stack([vals, vals, vals], axis=1)
+        status_img = status_img[:, np.newaxis, :].astype(np.float32)
+
+        # Provide raw RGB array (no colormap) and set extent
+        self.status_im.set_data(status_img)
+        self.status_im.set_extent([0, 1, y0, y1])
 
         self.im.set_data(block)
         self.im.set_extent([self.freqs[0], self.freqs[-1], y0, y1])
@@ -382,7 +419,7 @@ class WaterfallPSDViewer:
         max_start = max(0, self.total_samples - self.fft_size)
         start_sample = max(0, min(int(sample_index), max_start))
 
-        psd = self._foreground_psd(start_sample)
+        psd, _ = self._foreground_psd(start_sample)
         self.line.set_data(self.freqs, psd)
 
         step = max(1, self.fft_size // 2)
@@ -394,7 +431,12 @@ class WaterfallPSDViewer:
         )
         starts = np.clip(starts, 0, max_start)
 
-        max_rows = [self._foreground_psd(int(s)) for s in starts]
+        # Collect PSD rows (ignore distance)
+        max_rows = []
+        for s in starts:
+            psd_row, _ = self._foreground_psd(int(s))
+            max_rows.append(psd_row)
+
         max_psd = np.max(np.vstack(max_rows), axis=0)
         self.max_line.set_data(self.freqs, max_psd)
 
