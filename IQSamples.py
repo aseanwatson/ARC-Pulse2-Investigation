@@ -1,31 +1,42 @@
 import numpy as np
 from numpy.typing import NDArray
+from typing import Optional, Union
 from scipy.signal import firwin, lfilter
 
 import logging
 
-class IQSamples:
-    data: NDArray[np.complex64]
-    fs: float
-    fc: float
+class BaseSamples:
+    """Container for sample data with basic utilities.
 
-    def __init__(self, data, fs, fc):
-        self.data = data
-        self.fs = fs
-        self.fc = fc
+    Attributes:
+        data: Sample array (complex or real depending on subclass).
+        fs: Sampling frequency in Hz.
+    """
 
-    @property
-    def sample_count(self):
-        return len(self.data)
+    def __init__(self, data: NDArray, fs: float) -> None:
+        """Create a BaseSamples container.
 
-    def _modified(self, data = None, fs = None, fc = None):
+        :param data: Array of samples.
+        :param fs: Sampling frequency in Hz.
+        """
+        self.data: NDArray = data
+        self.fs: float = fs
+
+    def _modified(self, data: Optional[NDArray] = None, fs: Optional[float] = None):
+        """Return a modified copy of this object (used by transformations).
+
+        Returns an instance of the same runtime class (`self.__class__`).
+        Subclasses may override when additional state (e.g. `fc`) must be preserved.
+        """
         if data is None:
             data = self.data
         if fs is None:
             fs = self.fs
-        if fc is None:
-            fc = self.fc
-        return IQSamples(data = data, fs = fs, fc = fc)
+        return self.__class__(data=data, fs=fs)
+
+    @property
+    def sample_count(self):
+        return len(self.data)
 
     def _time_to_sample(self, time: float) -> int:
         """
@@ -40,29 +51,14 @@ class IQSamples:
         return index / self.fs
 
     def time(self) -> NDArray[np.float64]:
+        """Return an array of time values (seconds) for each sample index."""
         return np.arange(len(self.data)) / self.fs
 
-    def recenter(self, fc_new:float) -> 'IQSamples':
-        """
-        Shifts samples so a new frequency is at the center
+    def scale(self, factor: float) -> 'BaseSamples':
+        """Scale sample values by `factor` and return a modified copy."""
+        return self._modified(data=self.data * factor)
 
-        :param self: Description
-        :param fc_new: Description
-        :type fc_new: float
-        :return: Description
-        :rtype: iq_samples
-        """
-        return self._modified(
-            data = self.data * np.exp(-2j * np.pi * (fc_new - self.fc) * self.time()),
-            fc = fc_new)
-
-    def dc_correct(self) -> 'IQSamples':
-        """
-        Subtracts the mean to remove DC bias.
-        """
-        return self._modified(data = self.data - np.mean(self.data))
-
-    def normalize_percentile(self, p: float = 95.0, *, min_threshold: float = 0.0, min_threshold_percentile: float = 0.0) -> 'IQSamples':
+    def normalize_percentile(self, p: float = 95.0, *, min_threshold: float = 0.0, min_threshold_percentile: float = 0.0) -> 'BaseSamples':
         """
         Normalizes the samples so the absolute value is 1.0 at p95 (or some other value), excluding values less than some value (given as an absolute value or a percentile).
 
@@ -92,29 +88,9 @@ class IQSamples:
         if scale == 0:
             raise ValueError("Percentile value is zero; cannot normalize.")
 
-        return self._modified(data=self.data / scale)
+        return self.scale(1.0 / scale)
 
-    def low_pass(self, numtaps:int, cutoff:float) -> 'IQSamples':
-        """
-        Applies an FIR low-pass filter around the center frequency.
-
-        :param numtaps: Number of coefficients in the filter. (See 'numtaps' in 'firwin')
-        :type numtaps: int
-        :param cuttoff: Width of the frequency band to pass.
-        :type cuttoff: float
-        :return: An `iq_samples` with the filter applied.
-        :rtype: iq_samples
-        """
-        lp_taps = firwin(
-            numtaps = numtaps,
-            cutoff = cutoff,
-            fs = self.fs,
-            window = "blackmanharris")
-
-        return self._modified(
-            data = lfilter(lp_taps, 1.0, self.data))
-
-    def decimate(self, decimation_factor:int) -> 'IQSamples':
+    def decimate(self, decimation_factor: int) -> 'BaseSamples':
         """
         Resamples the iq_samples, keeping only one sample per `decimation_factor` samples.
 
@@ -123,14 +99,132 @@ class IQSamples:
         :return: The decimated `iq_samples`
         :rtype: iq_samples
         """
-        return self._modified(data = self.data[::decimation_factor], fs=self.fs/decimation_factor)
+        return self._modified(data=self.data[::decimation_factor], fs=self.fs / decimation_factor)
 
-    def save_to_cf32(self, base):
-        """
-        Saves samples as a cf32 file. This is used for input to gqrx or inspectrum, for example.
+    def time_slice(self, start: float, end: float) -> 'BaseSamples':
+        """Return a time-sliced view between `start` and `end` (seconds)."""
+        start_sample = self._time_to_sample(start)
+        end_sample = self._time_to_sample(end)
+        return self._modified(data=self.data[start_sample:end_sample])
 
-        :param base: Basename to save to.
+    def remove_mean(self) -> 'BaseSamples':
+        """Subtract the mean from the data and return a modified copy."""
+        return self._modified(data=self.data - np.mean(self.data))
+
+    def abs(self) -> 'RealSamples':
+        """Return a RealSamples containing the absolute value of the data."""
+        arr = np.abs(self.data).astype(np.float32)
+        return RealSamples(arr, fs=self.fs)
+
+class ComplexSamples(BaseSamples):
+    """Samples container for complex-valued signals."""
+
+    def __init__(self, data: Union[NDArray[np.complex64], 'BaseSamples'], fs: Optional[float] = None) -> None:
+        """Construct from raw complex array or from another BaseSamples instance.
+
+        If `data` is a `BaseSamples` instance, its `data` and `fs` are used.
         """
+        if isinstance(data, BaseSamples):
+            super().__init__(data=data.data.astype(np.complex64), fs=data.fs)
+        else:
+            assert fs is not None
+            super().__init__(data=data, fs=fs)
+
+    def angle(self) -> 'AngleSamples':
+        """Return the instantaneous phase as `AngleSamples`."""
+        arr = np.angle(self.data).astype(np.float32)
+        return AngleSamples(arr, fs=self.fs)
+
+    def conjugate(self) -> 'ComplexSamples':
+        """Return the complex conjugate as a modified copy."""
+        return self._modified(data=np.conjugate(self.data))
+
+    def real(self) -> 'RealSamples':
+        """Return the real part as `RealSamples`."""
+        arr = self.data.real.astype(np.float32)
+        return RealSamples(arr, fs=self.fs)
+
+    def imag(self) -> 'RealSamples':
+        """Return the imaginary part as `RealSamples`."""
+        arr = self.data.imag.astype(np.float32)
+        return RealSamples(arr, fs=self.fs)
+
+class RealSamples(BaseSamples):
+    """Samples container for real-valued signals."""
+
+    def __init__(self, data: Union[NDArray[np.float32], BaseSamples], fs: Optional[float] = None) -> None:
+        """Construct from raw real array or from a BaseSamples instance."""
+        if isinstance(data, BaseSamples):
+            super().__init__(data=data.data.real.astype(np.float32), fs=data.fs)
+        else:
+            assert fs is not None
+            super().__init__(data=data, fs=fs)
+        self.data: NDArray[np.float32] = self.data.astype(np.float32)
+
+class AngleSamples(RealSamples):
+    """Angle (phase) samples derived from complex signals."""
+
+    def __init__(self, data: Union[NDArray[np.float32], BaseSamples], fs: Optional[float] = None) -> None:
+        if isinstance(data, BaseSamples):
+            super().__init__(data=np.angle(data.data).astype(np.float32), fs=data.fs)
+        else:
+            assert fs is not None
+            super().__init__(data=data, fs=fs)
+
+    def unwrap(self) -> 'AngleSamples':
+        """Return an `AngleSamples` with phase unwrapped."""
+        arr = np.unwrap(self.data).astype(np.float32)
+        return AngleSamples(arr, fs=self.fs)
+
+class IQSamples(ComplexSamples):
+    """IQ (complex) samples with center frequency metadata and DSP helpers."""
+
+    def __init__(self, data: NDArray[np.complex64], fs: float, fc: float) -> None:
+        """Create IQ samples.
+
+        :param data: Complex baseband samples.
+        :param fs: Sampling frequency in Hz.
+        :param fc: Center frequency in Hz.
+        """
+        super().__init__(data, fs)
+        self.fc: float = fc
+
+    def _modified(self, data: Optional[NDArray] = None, fs: Optional[float] = None, fc: Optional[float] = None) -> 'IQSamples':
+        """Return a modified IQSamples instance preserving `fc` when not provided."""
+        if data is None:
+            data = self.data
+        if fs is None:
+            fs = self.fs
+        if fc is None:
+            fc = self.fc
+        return IQSamples(data=data, fs=fs, fc=fc)
+
+    def recenter(self, fc_new: float) -> 'IQSamples':
+        """Shift samples so a new frequency `fc_new` is at center frequency.
+
+        Returns a new `IQSamples` instance with the frequency shift applied.
+        """
+        return self._modified(
+            data=self.data * np.exp(-2j * np.pi * (fc_new - self.fc) * self.time()),
+            fc=fc_new,
+        )
+
+    def dc_correct(self) -> 'IQSamples':
+        """Subtract the mean (DC) from the complex samples."""
+        return self._modified(data=self.data - np.mean(self.data))
+
+    def low_pass(self, numtaps: int, cutoff: float) -> 'IQSamples':
+        """Apply an FIR low-pass filter and return filtered samples.
+
+        :param numtaps: Number of FIR taps.
+        :param cutoff: Cutoff frequency in Hz.
+        """
+        lp_taps = firwin(numtaps=numtaps, cutoff=cutoff, fs=self.fs, window="blackmanharris")
+
+        return self._modified(data=lfilter(lp_taps, 1.0, self.data))
+
+    def save_to_cf32(self, base: str) -> None:
+        """Save interleaved cf32 (float32 I/Q) file to `generated/{base}.cf32`."""
         path = f'generated/{base}.cf32'
         logging.info(f'saving {self.sample_count} samples to {path}:')
         interleaved = np.empty(2 * self.sample_count, dtype=np.float32)
@@ -138,28 +232,17 @@ class IQSamples:
         interleaved[1::2] = self.data.imag.astype(np.float32)
         interleaved.tofile(path)
 
-    def time_slice(self, start: float, end:float) -> 'IQSamples':
-        start_sample = self._time_to_sample(start)
-        end_sample = self._time_to_sample(end)
-        return self._modified(data=self.data[start_sample:end_sample])
-
     @staticmethod
-    def load_int8(path, fs:float, fc:float) -> 'IQSamples':
-        """
-        Docstring for load_int8
+    def load_int8(path: str, fs: float, fc: float) -> 'IQSamples':
+        """Load int8 I/Q interleaved file and return an `IQSamples` instance.
 
-        :param path: Description
-        :param fs: Description
-        :type fs: float
-        :param fc: Description
-        :type fc: float
-        :return: Description
-        :rtype: iq_samples
+        Values are scaled to approximately [-1, 1].
         """
         raw = np.fromfile(path, dtype=np.int8)
         logging.info(f'loaded {len(raw)//2} samples from {path}:')
         iq = raw.reshape(-1, 2)
         return IQSamples(
-            data = (iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32)) / 128.0,
-            fs = fs,
-            fc = fc)
+            data=(iq[:, 0].astype(np.float32) + 1j * iq[:, 1].astype(np.float32)) / 128.0,
+            fs=fs,
+            fc=fc,
+        )
