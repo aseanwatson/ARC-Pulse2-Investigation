@@ -41,6 +41,7 @@ class WaterfallPSDViewer:
         self.fc: float = samples.fc
         self.data: np.ndarray = samples.data
         self.total_samples: int = samples.sample_count
+        self.cursor_sample: int = self.total_samples // 2
 
         # DSP parameters
         self.fft_size: int = 1 << 14
@@ -94,7 +95,7 @@ class WaterfallPSDViewer:
 
         # Initial draw
         self.render_waterfall()
-        self.draw_frame_from_sample(0)
+        self.draw_frame_from_sample()
 
         plt.show()
 
@@ -285,7 +286,6 @@ class WaterfallPSDViewer:
         self.max_line, = self.ax_psd.plot(
             [], [], lw=1, color="red", alpha=0.6)
 
-        self.ax_psd.legend()
         self.ax_psd.set_xlabel("Power (dB)")
         # Hide PSD y-axis label (frequency is shown on waterfall)
         self.ax_psd.set_ylabel("")
@@ -298,6 +298,11 @@ class WaterfallPSDViewer:
             extent=[0, 1, self.freqs[0], self.freqs[-1]],
             cmap="viridis",
         )
+
+        # ------------------------------------------------------------
+        # Cursor line (vertical time cursor)
+        # ------------------------------------------------------------
+        self.cursor_line = self.ax_wf.axvline(color="red", lw=1.0, alpha=0.8, visible=False)
 
         self.ax_wf.set_title("")
         # After transposition: time along X, frequency along Y
@@ -409,6 +414,7 @@ class WaterfallPSDViewer:
         # Set waterfall data transposed so frequency is on Y axis
         self.im.set_data(block.T)
         self.im.set_extent([t0, t1, self.freqs[0], self.freqs[-1]])
+        self._set_cursor(self.cursor_sample)
         self.fig.canvas.draw_idle()
 
         # Cancel any previous background job
@@ -418,11 +424,24 @@ class WaterfallPSDViewer:
         self.executor.submit(self._background_fill, row_samples)
 
     # ------------------------------------------------------------
+    # Cursor helper
+    # ------------------------------------------------------------
+    def _set_cursor(self, sample_index: int) -> None:
+        """Move the cursor to a given sample index."""
+        self.cursor_sample = sample_index
+
+        t_ms = sample_index / self.fs * 1e3
+        self.cursor_line.set_xdata([t_ms])
+        self.cursor_line.set_visible(True)
+
+        self.fig.canvas.draw_idle()
+
+    # ------------------------------------------------------------
     # PSD panel update
     # ------------------------------------------------------------
-    def draw_frame_from_sample(self, sample_index: int) -> None:
+    def draw_frame_from_sample(self) -> None:
         max_start = max(0, self.total_samples - self.fft_size)
-        start_sample = max(0, min(int(sample_index), max_start))
+        start_sample = max(0, min(int(self.cursor_sample), max_start))
 
         psd, _ = self._foreground_psd(start_sample)
         # PSD plotted horizontally (power on X, frequency on Y)
@@ -456,13 +475,20 @@ class WaterfallPSDViewer:
             return
         sample = int((event.xdata / 1e3) * self.fs)
         sample = max(0, min(sample, self.total_samples - 1))
-        self.draw_frame_from_sample(sample)
+
+        # Set cursor
+        self._set_cursor(sample)
+
+        # Update PSD panel
+        self.draw_frame_from_sample()
 
     def on_scroll(self, event) -> None:
         if event.inaxes != self.ax_wf or event.xdata is None:
             return
-        fixed_sample = int((event.xdata / 1e3) * self.fs)
-        fixed_sample = max(0, min(fixed_sample, self.total_samples - 1))
+
+        # If cursor exists, zoom around it
+        fixed_sample = self.cursor_sample
+
         delta = +1 if event.button == "up" else -1
         self.set_zoom_level(delta, fixed_sample)
         self.render_waterfall()
