@@ -244,71 +244,73 @@ class WaterfallPSDViewer:
         if hasattr(self.fig.canvas, "toolbar_visible"):
             self.fig.canvas.toolbar_visible = False
 
-        # 2 columns: waterfall + narrow gradient bar
+        # Layout: waterfall on the left, PSD on the right (spanning rows),
+        # and a small status bar above the waterfall.
+        # PSD width = 1/5 of waterfall -> width_ratios = [5, 1]
+        # status height = 3% of waterfall -> height_ratios = [3, 100]
         gs = self.fig.add_gridspec(
             2, 2,
-            width_ratios=[1, 0.03],
-            height_ratios=[1, 1.5]
+            width_ratios=[1, 0.18],
+            height_ratios=[0.02, 1],
+            wspace=0.02,
+            hspace=0.02,
         )
 
-        # PSD axis (top-left)
-        self.ax_psd = self.fig.add_subplot(gs[0, 0])
-        self.ax_psd.set_title("")
+        # Waterfall axis: bottom-left
+        self.ax_wf = self.fig.add_subplot(gs[1, 0])
 
-        # Hide PSD x-axis ticks but keep shared axis
-        self.ax_psd.tick_params(
-            axis="x",
-            which="both",
-            bottom=False,
-            top=False,
-            labelbottom=False
-        )
-
-        # Waterfall axis (bottom-left)
-        self.ax_wf = self.fig.add_subplot(gs[1, 0], sharex=self.ax_psd)
-
-        # Gradient bar axis (bottom-right)
-        self.ax_status = self.fig.add_subplot(gs[1, 1])
-        self.ax_status.set_xticks([])
-        self.ax_status.set_yticks([])
+        # Status axis: top-left (above waterfall), share X with waterfall
+        self.ax_status = self.fig.add_subplot(gs[0, 0], sharex=self.ax_wf)
+        # hide the status axis entirely (so it doesn't suppress shared ticks)
+        self.ax_status.xaxis.set_visible(False)
+        self.ax_status.yaxis.set_visible(False)
         self.ax_status.set_title("")
 
-        # Initialize gradient image (placeholder) as RGB (height x 1 x 3)
+        # PSD axis: bottom-right (right of waterfall), share Y with waterfall
+        self.ax_psd = self.fig.add_subplot(gs[1, 1], sharey=self.ax_wf)
+        self.ax_psd.set_title("")
+        # Hide PSD y-axis (frequency shown on waterfall only)
+        self.ax_psd.yaxis.set_visible(False)
+
+        # Initialize gradient image (placeholder) as RGB (1 x width x 3)
         self.status_im = self.ax_status.imshow(
-            np.zeros((2, 1, 3), dtype=float),
+            np.zeros((1, 1, 3), dtype=float),
             aspect="auto",
             origin="lower",
             interpolation="nearest",
         )
 
         # PSD plot
-        self.line, = self.ax_psd.plot([], [], lw=1, label="Current PSD")
+        self.line, = self.ax_psd.plot([], [], lw=1)
         self.max_line, = self.ax_psd.plot(
-            [], [], lw=1, color="red", alpha=0.6, label=f"Max over last {self.n_max}"
-        )
-        self.time_text = self.ax_psd.text(
-            0.02, 0.95, "", transform=self.ax_psd.transAxes,
-            fontsize=10, color="gray"
-        )
+            [], [], lw=1, color="red", alpha=0.6)
 
         self.ax_psd.legend()
-        self.ax_psd.set_ylabel("Power (dB)")
+        self.ax_psd.set_xlabel("Power (dB)")
+        # Hide PSD y-axis label (frequency is shown on waterfall)
+        self.ax_psd.set_ylabel("")
 
         # Waterfall image
         self.im = self.ax_wf.imshow(
             np.zeros((2, len(self.freqs))),
             aspect="auto",
             origin="lower",
-            extent=[self.freqs[0], self.freqs[-1], 0, 1],
+            extent=[0, 1, self.freqs[0], self.freqs[-1]],
             cmap="viridis",
         )
 
         self.ax_wf.set_title("")
-        self.ax_wf.set_xlabel(f"Frequency ({self.xunit})")
-        self.ax_wf.set_ylabel("Time (ms)")
+        # After transposition: time along X, frequency along Y
+        self.ax_wf.set_xlabel("Time (ms)")
+        self.ax_wf.set_ylabel(f"Frequency ({self.xunit})")
+        # Ensure x tick labels are visible on the waterfall axis
+        self.ax_wf.tick_params(axis="x", labelbottom=True)
 
-        # Compute layout once
-        self.fig.tight_layout()
+        # tighten spacing on layout and set tight margins (avoid tight_layout warnings)
+        self.fig.subplots_adjust(
+            left=0.04, right=0.98, top=0.97, bottom=0.05,
+            wspace=0.02, hspace=0.02
+        )
 
     # ------------------------------------------------------------
     # Event connections
@@ -349,23 +351,24 @@ class WaterfallPSDViewer:
     # ------------------------------------------------------------
     def render_waterfall(self) -> None:
         vis = self.visible_samples()
-        y0 = (self.min_visible_sample / self.fs) * 1e3
-        y1 = ((self.min_visible_sample + vis) / self.fs) * 1e3
+        t0 = (self.min_visible_sample / self.fs) * 1e3
+        t1 = ((self.min_visible_sample + vis) / self.fs) * 1e3
 
-        self.ax_wf._updating_limits = True
-        self.ax_wf.set_ylim(y0, y1)
-        del self.ax_wf._updating_limits
+        # Now time is along X axis: set X limits to visible time window
+        self.ax_wf.set_xlim(t0, t1)
+        # Ensure frequency range covers the Y axis
+        self.ax_wf.set_ylim(self.freqs[0], self.freqs[-1])
 
-        height_px = int(self.im.get_window_extent().height)
-        if height_px < 2:
+        width_px = int(self.im.get_window_extent().width)
+        if width_px < 2:
             return
 
-        samples_per_pixel = max(1, vis / height_px)
+        samples_per_pixel = max(1, vis / width_px)
         max_start = max(0, self.total_samples - self.fft_size)
 
         row_samples = (
             self.min_visible_sample +
-            np.arange(height_px) * samples_per_pixel
+            np.arange(width_px) * samples_per_pixel
         ).astype(int)
         row_samples = np.clip(row_samples, 0, max_start)
 
@@ -386,7 +389,8 @@ class WaterfallPSDViewer:
             vmax = vmin + 1e-2
 
         self.im.set_clim(vmin, vmax)
-        self.ax_psd.set_ylim(vmin, vmax)
+        # PSD plotted horizontally: power on X axis
+        self.ax_psd.set_xlim(vmin, vmax)
 
         # Convert distances → grayscale
         distances = np.array(distances, dtype=float)
@@ -394,16 +398,17 @@ class WaterfallPSDViewer:
 
         vals = 1.0 - distances / 2000.0   # 1 = white, 0 = black
 
-        # Convert to RGB (height_px × 1 × 3)
+        # Convert to RGB (1 × width_px × 3) so it maps along X (time)
         status_img = np.stack([vals, vals, vals], axis=1)
-        status_img = status_img[:, np.newaxis, :].astype(np.float32)
+        status_img = status_img[np.newaxis, :, :].astype(np.float32)
 
-        # Provide raw RGB array (no colormap) and set extent
+        # Provide raw RGB array (no colormap) and set extent to time on X
         self.status_im.set_data(status_img)
-        self.status_im.set_extent([0, 1, y0, y1])
+        self.status_im.set_extent([t0, t1, 0, 1])
 
-        self.im.set_data(block)
-        self.im.set_extent([self.freqs[0], self.freqs[-1], y0, y1])
+        # Set waterfall data transposed so frequency is on Y axis
+        self.im.set_data(block.T)
+        self.im.set_extent([t0, t1, self.freqs[0], self.freqs[-1]])
         self.fig.canvas.draw_idle()
 
         # Cancel any previous background job
@@ -420,7 +425,8 @@ class WaterfallPSDViewer:
         start_sample = max(0, min(int(sample_index), max_start))
 
         psd, _ = self._foreground_psd(start_sample)
-        self.line.set_data(self.freqs, psd)
+        # PSD plotted horizontally (power on X, frequency on Y)
+        self.line.set_data(psd, self.freqs)
 
         step = max(1, self.fft_size // 2)
         starts = np.arange(
@@ -438,44 +444,42 @@ class WaterfallPSDViewer:
             max_rows.append(psd_row)
 
         max_psd = np.max(np.vstack(max_rows), axis=0)
-        self.max_line.set_data(self.freqs, max_psd)
+        self.max_line.set_data(max_psd, self.freqs)
 
-        t_ms = (sample_index / self.fs) * 1e3
-        self.time_text.set_text(f"Time: {t_ms:6.1f} ms; start: {start_sample}")
         self.fig.canvas.draw_idle()
 
     # ------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------
     def on_click(self, event) -> None:
-        if event.inaxes != self.ax_wf or event.ydata is None:
+        if event.inaxes != self.ax_wf or event.xdata is None:
             return
-        sample = int((event.ydata / 1e3) * self.fs)
+        sample = int((event.xdata / 1e3) * self.fs)
         sample = max(0, min(sample, self.total_samples - 1))
         self.draw_frame_from_sample(sample)
 
     def on_scroll(self, event) -> None:
-        if event.inaxes != self.ax_wf or event.ydata is None:
+        if event.inaxes != self.ax_wf or event.xdata is None:
             return
-        fixed_sample = int((event.ydata / 1e3) * self.fs)
+        fixed_sample = int((event.xdata / 1e3) * self.fs)
         fixed_sample = max(0, min(fixed_sample, self.total_samples - 1))
         delta = +1 if event.button == "up" else -1
         self.set_zoom_level(delta, fixed_sample)
         self.render_waterfall()
 
     def on_press(self, event) -> None:
-        if event.inaxes == self.ax_wf and event.button == 1 and event.ydata is not None:
-            self._pan["press_sample"] = int((event.ydata / 1e3) * self.fs)
+        if event.inaxes == self.ax_wf and event.button == 1 and event.xdata is not None:
+            self._pan["press_sample"] = int((event.xdata / 1e3) * self.fs)
             self._pan["orig_min"] = self.min_visible_sample
 
     def on_motion(self, event) -> None:
         if (
             self._pan["press_sample"] is None
             or event.inaxes != self.ax_wf
-            or event.ydata is None
+            or event.xdata is None
         ):
             return
-        current_sample = int((event.ydata / 1e3) * self.fs)
+        current_sample = int((event.xdata / 1e3) * self.fs)
         delta = current_sample - self._pan["press_sample"]
         new_min = self._pan["orig_min"] - delta
         self.set_min_visible_sample(new_min)
