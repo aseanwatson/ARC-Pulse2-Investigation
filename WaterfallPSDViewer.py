@@ -20,6 +20,25 @@ import queue
 
 import logging
 
+# --------------------------------------------------------------------
+# Viewer configuration / tuning parameters
+# --------------------------------------------------------------------
+
+# FFT / PSD
+DEFAULT_FFT_SIZE            = 1 << 14      # controls frequency resolution
+MAX_CACHE_ENTRIES           = 20_000       # maximum PSD rows in LRU cache
+NEAREST_CACHE_MAX_OFFSET    = DEFAULT_FFT_SIZE // 2  # samples for "near" cache reuse
+
+# Status bar (cache distance visualization)
+STATUS_DISTANCE_CLIP_FACTOR = 1.0         # multiplier on NEAREST_CACHE_MAX_OFFSET
+
+# Instantaneous frequency panel
+FINST_DECIMATION            = 10           # decimate factor before computing f_inst
+FINST_YLIM_PERCENTILE       = 90.0         # percentile of |f_inst| for y-limits
+FINST_YLIM_MARGIN           = 1.8          # multiplier on percentile for headroom
+
+
+
 class WaterfallPSDViewer:
     """
     Interactive SDR-style waterfall + PSD viewer.
@@ -44,8 +63,8 @@ class WaterfallPSDViewer:
         self.cursor_sample: int = self.total_samples // 2
 
         # DSP parameters
-        self.fft_size: int = 1 << 14
-        self.n_max: int = 50
+        self.fft_size: int = DEFAULT_FFT_SIZE
+        self.n_max: int = 50  # number of PSD rows for max-hold in right panel
         self.xscale: float = 1e6
         self.xunit: str = "MHz"
 
@@ -66,7 +85,7 @@ class WaterfallPSDViewer:
 
         # PSD cache (LRU)
         self.psd_cache: OrderedDict[int, np.ndarray] = OrderedDict()
-        self.max_cache_entries: int = 20000
+        self.max_cache_entries: int = MAX_CACHE_ENTRIES
         self.cache_lock = threading.Lock()
 
         # Nearest-neighbor fast path
@@ -130,7 +149,7 @@ class WaterfallPSDViewer:
 
                 windowed = chunk * blackmanharris(len(chunk))
                 psd_full = 20 * np.log10(
-                    np.abs(np.fft.fftshift(np.fft.fft(windowed))) + 1e-12
+                    np.abs(np.fft.fftshift(np.fft.fft(windowed))) + 1e-12 # small floor to avoid log(0)
                 )
                 psd = psd_full[self.mask]
 
@@ -162,10 +181,11 @@ class WaterfallPSDViewer:
                 self.last_lookup_psd = psd
                 return psd, 0
 
-            # Fast-path nearest
+            # Fast-path nearest: if we're within a reasonable offset of the last lookup,
+            # reuse that PSD row instead of a full nearest-neighbor search.
             if (
                 self.last_lookup_key is not None
-                and abs(start_sample - self.last_lookup_key) < 2000
+                and abs(start_sample - self.last_lookup_key) < NEAREST_CACHE_MAX_OFFSET
             ):
                 return self.last_lookup_psd, abs(start_sample - self.last_lookup_key)
 
@@ -181,8 +201,8 @@ class WaterfallPSDViewer:
                 self.last_lookup_psd = nearest_psd
                 return nearest_psd, dist
 
-        # No cache → treat as max distance
-        return np.zeros_like(self.freqs), 2000
+        # No cache → treat as max distance (used for status bar visualization)
+        return np.zeros_like(self.freqs), NEAREST_CACHE_MAX_OFFSET
 
     # ------------------------------------------------------------
     # Background job: compute all PSDs for current view
@@ -311,7 +331,7 @@ class WaterfallPSDViewer:
             f_inst.data,
             s=1)
 
-        ylim_threshold = f_inst.abs().percentile(90) * 1.8
+        ylim_threshold = f_inst.abs().percentile(FINST_YLIM_PERCENTILE) * FINST_YLIM_MARGIN
         self.ax_finst.set_ylim(-ylim_threshold, ylim_threshold)
 
         # ------------------------------------------------------------
@@ -416,9 +436,14 @@ class WaterfallPSDViewer:
 
         # Convert distances → grayscale
         distances = np.array(distances, dtype=float)
-        distances = np.clip(distances, 0, 2000)
+        # Use the same scale factor as the "near" cache offset, so that a
+        # distance equal to NEAREST_CACHE_MAX_OFFSET maps to black.
+        status_max_dist = NEAREST_CACHE_MAX_OFFSET * STATUS_DISTANCE_CLIP_FACTOR
+        distances = np.clip(distances, 0, status_max_dist)
 
-        vals = 1.0 - distances / 2000.0   # 1 = white, 0 = black
+        # 1 = white (exact or very near), 0 = black (far from any cached PSD)
+        vals = 1.0 - distances / status_max_dist
+
 
         # Convert to RGB (1 × width_px × 3) so it maps along X (time)
         status_img = np.stack([vals, vals, vals], axis=1)
