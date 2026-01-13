@@ -61,6 +61,7 @@ class WaterfallPSDViewer:
         self.data: np.ndarray = samples.data
         self.total_samples: int = samples.sample_count
         self.cursor_sample: int = self.total_samples // 2
+        self.start_time: float = samples.start_time
 
         # DSP parameters
         self.fft_size: int = DEFAULT_FFT_SIZE
@@ -325,7 +326,7 @@ class WaterfallPSDViewer:
 
         decimated = self.samples.decimate(10)
         f_inst = decimated.instantaneous_frequency().remove_mean()
-        t_ms = f_inst.time() * 1e3
+        t_ms = (f_inst.time() + self.start_time) * 1e3
         self.finst_plot_signal = self.ax_finst.scatter(
             t_ms,
             f_inst.data,
@@ -393,8 +394,8 @@ class WaterfallPSDViewer:
     # ------------------------------------------------------------
     def render_waterfall(self) -> None:
         vis = self.visible_samples()
-        t0 = (self.min_visible_sample / self.fs) * 1e3
-        t1 = ((self.min_visible_sample + vis) / self.fs) * 1e3
+        t0 = (self.min_visible_sample / self.fs + self.start_time) * 1e3
+        t1 = ((self.min_visible_sample + vis) / self.fs + self.start_time) * 1e3
 
         # Now time is along X axis: set X limits to visible time window
         self.ax_wf.set_xlim(t0, t1)

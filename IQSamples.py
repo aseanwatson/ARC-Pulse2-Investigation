@@ -13,16 +13,18 @@ class BaseSamples:
         fs: Sampling frequency in Hz.
     """
 
-    def __init__(self, data: NDArray, fs: float) -> None:
+    def __init__(self, data: NDArray, fs: float, start_time: float = 0) -> None:
         """Create a BaseSamples container.
 
         :param data: Array of samples.
         :param fs: Sampling frequency in Hz.
+        :param start_time: Start time in seconds.
         """
         self.data: NDArray = data
         self.fs: float = fs
+        self.start_time: float = start_time
 
-    def _modified(self, data: Optional[NDArray] = None, fs: Optional[float] = None):
+    def _modified(self, data: Optional[NDArray] = None, fs: Optional[float] = None, start_time: Optional[float] = None) -> 'BaseSamples':
         """Return a modified copy of this object (used by transformations).
 
         Returns an instance of the same runtime class (`self.__class__`).
@@ -32,7 +34,9 @@ class BaseSamples:
             data = self.data
         if fs is None:
             fs = self.fs
-        return self.__class__(data=data, fs=fs)
+        if start_time is None:
+            start_time = self.start_time
+        return self.__class__(data=data, fs=fs, start_time=start_time)
 
     @property
     def sample_count(self):
@@ -42,13 +46,13 @@ class BaseSamples:
         """
         Converts a time (in seconds) to a sample index
         """
-        return int(time * self.fs)
+        return int((time - self.start_time) * self.fs)
 
     def _sample_to_time(self, index: int) -> float:
         """
         Converts an sample index to a time
         """
-        return index / self.fs
+        return self.start_time + index / self.fs
 
     def time(self) -> NDArray[np.float64]:
         """Return an array of time values (seconds) for each sample index."""
@@ -101,11 +105,23 @@ class BaseSamples:
         """
         return self._modified(data=self.data[::decimation_factor], fs=self.fs / decimation_factor)
 
-    def time_slice(self, start: float, end: float) -> 'BaseSamples':
+    def time_slice(self, start: Optional[float] = None, end: Optional[float] = None, duration: Optional[float] = None) -> 'BaseSamples':
         """Return a time-sliced view between `start` and `end` (seconds)."""
-        start_sample = self._time_to_sample(start)
-        end_sample = self._time_to_sample(end)
-        return self._modified(data=self.data[start_sample:end_sample])
+        if start is not None and end is not None and duration is not None:
+            raise ValueError("Only two of start, end, and duration may be specified.")
+        if start is not None and end is not None:
+            start_sample = self._time_to_sample(start)
+            end_sample = self._time_to_sample(end)
+        elif start is not None and duration is not None:
+            start_sample = self._time_to_sample(start)
+            end_sample = start_sample + int(duration * self.fs)
+        elif end is not None and duration is not None:
+            end_sample = self._time_to_sample(end)
+            start_sample = end_sample - int(duration * self.fs)
+        else:
+            raise ValueError("At least two of start, end, and duration must be specified.")
+
+        return self._modified(data=self.data[start_sample:end_sample], start_time=self._sample_to_time(start_sample))
 
     def remove_mean(self) -> 'BaseSamples':
         """Subtract the mean from the data and return a modified copy."""
@@ -123,16 +139,16 @@ class BaseSamples:
 class ComplexSamples(BaseSamples):
     """Samples container for complex-valued signals."""
 
-    def __init__(self, data: Union[NDArray[np.complex64], 'BaseSamples'], fs: Optional[float] = None) -> None:
+    def __init__(self, data: Union[NDArray[np.complex64], 'BaseSamples'], fs: Optional[float] = None, start_time: float = 0) -> None:
         """Construct from raw complex array or from another BaseSamples instance.
 
         If `data` is a `BaseSamples` instance, its `data` and `fs` are used.
         """
         if isinstance(data, BaseSamples):
-            super().__init__(data=data.data.astype(np.complex64), fs=data.fs)
+            super().__init__(data=data.data.astype(np.complex64), fs=data.fs, start_time=data.start_time)
         else:
             assert fs is not None
-            super().__init__(data=data, fs=fs)
+            super().__init__(data=data, fs=fs, start_time=start_time)
 
     def angle(self) -> 'AngleSamples':
         """Return the instantaneous phase as `AngleSamples`."""
@@ -156,13 +172,13 @@ class ComplexSamples(BaseSamples):
 class RealSamples(BaseSamples):
     """Samples container for real-valued signals."""
 
-    def __init__(self, data: Union[NDArray[np.float32], BaseSamples], fs: Optional[float] = None) -> None:
+    def __init__(self, data: Union[NDArray[np.float32], BaseSamples], fs: Optional[float] = None, start_time: float = 0) -> None:
         """Construct from raw real array or from a BaseSamples instance."""
         if isinstance(data, BaseSamples):
-            super().__init__(data=data.data.real.astype(np.float32), fs=data.fs)
+            super().__init__(data=data.data.real.astype(np.float32), fs=data.fs, start_time=data.start_time)
         else:
             assert fs is not None
-            super().__init__(data=data, fs=fs)
+            super().__init__(data=data, fs=fs, start_time=start_time)
         self.data: NDArray[np.float32] = self.data.astype(np.float32)
 
     def percentile(self, p: float) -> float:
@@ -172,12 +188,12 @@ class RealSamples(BaseSamples):
 class AngleSamples(RealSamples):
     """Angle (phase) samples derived from complex signals."""
 
-    def __init__(self, data: Union[NDArray[np.float32], BaseSamples], fs: Optional[float] = None) -> None:
+    def __init__(self, data: Union[NDArray[np.float32], BaseSamples], fs: Optional[float] = None, start_time: float = 0) -> None:
         if isinstance(data, BaseSamples):
-            super().__init__(data=np.angle(data.data).astype(np.float32), fs=data.fs)
+            super().__init__(data=np.angle(data.data).astype(np.float32), fs=data.fs, start_time=data.start_time)
         else:
             assert fs is not None
-            super().__init__(data=data, fs=fs)
+            super().__init__(data=data, fs=fs, start_time=start_time)
 
     def unwrap(self) -> 'AngleSamples':
         """Return an `AngleSamples` with phase unwrapped."""
@@ -187,17 +203,17 @@ class AngleSamples(RealSamples):
 class IQSamples(ComplexSamples):
     """IQ (complex) samples with center frequency metadata and DSP helpers."""
 
-    def __init__(self, data: NDArray[np.complex64], fs: float, fc: float) -> None:
+    def __init__(self, data: NDArray[np.complex64], fs: float, fc: float, start_time: float = 0) -> None:
         """Create IQ samples.
 
         :param data: Complex baseband samples.
         :param fs: Sampling frequency in Hz.
         :param fc: Center frequency in Hz.
         """
-        super().__init__(data, fs)
+        super().__init__(data, fs, start_time=start_time)
         self.fc: float = fc
 
-    def _modified(self, data: Optional[NDArray] = None, fs: Optional[float] = None, fc: Optional[float] = None) -> 'IQSamples':
+    def _modified(self, data: Optional[NDArray] = None, fs: Optional[float] = None, fc: Optional[float] = None, start_time: Optional[float] = None) -> 'IQSamples':
         """Return a modified IQSamples instance preserving `fc` when not provided."""
         if data is None:
             data = self.data
@@ -205,7 +221,9 @@ class IQSamples(ComplexSamples):
             fs = self.fs
         if fc is None:
             fc = self.fc
-        return IQSamples(data=data, fs=fs, fc=fc)
+        if start_time is None:
+            start_time = self.start_time
+        return IQSamples(data=data, fs=fs, fc=fc, start_time=start_time)
 
     def recenter(self, fc_new: float) -> 'IQSamples':
         """Shift samples so a new frequency `fc_new` is at center frequency.
