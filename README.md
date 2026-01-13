@@ -26,7 +26,7 @@ The issue seems deeper than a radio strenth problem. When placing the blind righ
 * U3: Unpopulated (TSSOP-8 or MSOP-8 package)
 * U4: **Not found?**
 * U5: [SMSC 8720A](https://ww1.microchip.com/downloads/en/DeviceDoc/8720a.pdf) - 0/100 Mbps Ethernet PHY transceiver
-* U6: Not found?
+* U6: **Not found?**
 * U7: [ST L051K86](https://www.st.com/en/microcontrollers-microprocessors/stm32l051k8.html) - MPU
 * U8: [Si 44602A](https://www.silabs.com/documents/public/data-sheets/Si4463-61-60-C.pdf) - Radio tranciever
 * U9: Unpopulated (SOIC-8, TSSOP-8, or MSOP-8)
@@ -131,4 +131,4 @@ save_to_gqrx_float32(samples, 'generated/remote_dr2_f433125000_s2000000_a0_l16_g
 ```
 
 After opening GQRX with the device string of `file=generated/dining_room_2_f433000000_s2000000.c32,freq=433.0e6,rate=20e6,repeat=true,throttle=true`, and setting the frequency to `0` in the **Receiver Options** tab, I get this:
-![GQRX Screen Shot](data/GQRX_f433000000_s2000000_a0_l16_g2.png)
+![GQRX Screen Shot](data/GQRX_f433125000_s2000000_a0_l16_g2.png)
