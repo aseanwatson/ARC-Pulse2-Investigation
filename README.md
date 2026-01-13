@@ -41,6 +41,28 @@ The issue seems deeper than a radio strenth problem. When placing the blind righ
 
 There are a lot of test points; the largest designator I see is TP35 but I only count 32. TP13-16 break out the SPI pins on the si4460.
 
+### Test Points for Si4460 SPI
+In the orientation of the photo, the SPI pins are broken out as test points.
+They are left and below the chip.
+|Pin|TP  |Description
+|---|----|-----------
+|12 |TP15|SCLK
+|15 |TP16|nSEL
+|13 |TP14|SDO
+|14 |TP13|SDI
+
+### ESP32 flashing pins
+|Pin|TP        |Description
+|---|----------|-----------
+|   |       TP1|3V3 (also unpopulated header J3)
+|   |       TP4|EN (also unpopulated header J3)
+|   |       TP5|Ground (also unpopulated header J3)
+|   |       TP6|Ground (also unpopulated header J2)
+|   |       TP1|Ground (also unpopulated header J4)
+|   |       TP8|RXI (also unpopulated header J2)
+|   |(unlabled)|TXD (also unpopulated header J2)
+|   |       "0"|GPIO0 (no header, above eth port on right)
+
 ## Documents
 [FCC Details](https://fccid.io/pdf.php?id=4975342). The 433MHz grant is specifically for 433.92MHz-433.92MHz (no range)
 
