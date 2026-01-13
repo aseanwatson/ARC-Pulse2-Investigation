@@ -1,1 +1,5 @@
-.venv/*
+.venv/
+__pycache__/
+generated/
+# these files are too big for GitHub
+data/*.iq
