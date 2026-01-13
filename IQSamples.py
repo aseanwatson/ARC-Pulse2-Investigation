@@ -94,16 +94,16 @@ class BaseSamples:
 
         return self.scale(1.0 / scale)
 
-    def decimate(self, decimation_factor: int) -> 'BaseSamples':
+    def downsample(self, factor: int) -> 'BaseSamples':
         """
         Resamples the iq_samples, keeping only one sample per `decimation_factor` samples.
 
         :param decimation_factor: Number of samples to reduce to one.
-        :type decimation_factor: int
-        :return: The decimated `iq_samples`
+        :type factor: int
+        :return: The downsampled `iq_samples`
         :rtype: iq_samples
         """
-        return self._modified(data=self.data[::decimation_factor], fs=self.fs / decimation_factor)
+        return self._modified(data=self.data[::factor], fs=self.fs / factor)
 
     def time_slice(self, start: Optional[float] = None, end: Optional[float] = None, duration: Optional[float] = None) -> 'BaseSamples':
         """Return a time-sliced view between `start` and `end` (seconds)."""

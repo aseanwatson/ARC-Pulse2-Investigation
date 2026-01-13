@@ -30,9 +30,6 @@ samples.save_to_cf32('raw')
 samples = samples.time_slice(0.215, 0.340)
 samples.save_to_cf32('trimmed')
 
-# samples = samples.decimate(8)
-# samples.save_to_cf32('decimated')
-
 # shift from fc_capture to fc
 samples = samples.recenter(fc)
 samples.save_to_cf32('shifted')

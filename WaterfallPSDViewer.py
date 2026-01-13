@@ -33,7 +33,7 @@ NEAREST_CACHE_MAX_OFFSET    = DEFAULT_FFT_SIZE // 2  # samples for "near" cache 
 STATUS_DISTANCE_CLIP_FACTOR = 1.0         # multiplier on NEAREST_CACHE_MAX_OFFSET
 
 # Instantaneous frequency panel
-FINST_DECIMATION            = 10           # decimate factor before computing f_inst
+FINST_SAMPLE_RATE           = 10           # downsampling factor before computing f_inst
 FINST_YLIM_PERCENTILE       = 90.0         # percentile of |f_inst| for y-limits
 FINST_YLIM_MARGIN           = 1.8          # multiplier on percentile for headroom
 
@@ -324,8 +324,8 @@ class WaterfallPSDViewer:
             cmap="viridis",
         )
 
-        decimated = self.samples.decimate(10)
-        f_inst = decimated.instantaneous_frequency().remove_mean()
+        downsampled = self.samples.downsample(FINST_SAMPLE_RATE)
+        f_inst = downsampled.instantaneous_frequency().remove_mean()
         t_ms = (f_inst.time() + self.start_time) * 1e3
         self.finst_plot_signal = self.ax_finst.scatter(
             t_ms,
