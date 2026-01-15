@@ -63,6 +63,95 @@ They are left and below the chip.
 |   |(unlabled)|TXD (also unpopulated header J2)
 |   |       "0"|GPIO0 (no header, above eth port on right)
 
+## SPI Trace
+I was able to follow the directions to flash a hub with ESPHome; while I was
+soldering to the PCB, I attached wires to the SPI and used that to capture the
+SPI traffic between the 6640 and the STM32L051 chip. See [PulseView file](data/SPI%20Boot%20Capture.sr).
+
+There were some malformed updates, but here are the distinct `SET_PROPERTY` commands (starting
+with `0x11`, then a group, then a count of bytes to set, then a starting offset, then count bytes):
+```
+11 01 02 00 05 3A
+11 02 01 00 0A
+11 10 01 04 31
+11 11 05 00 03 B4 2B B4 2B
+11 12 01 10 08
+11 12 03 6F FF FF FF
+11 12 04 36 FF FF FF FF
+11 12 07 0E 01 04 80 00 3F 00 2A
+11 12 07 22 01 04 80 00 3F 00 0A
+11 12 0A 00 04 01 08 FF FF 20 82 00 2A 01
+11 20 02 0B 05 76
+11 20 02 50 84 0A
+11 20 02 54 83 41
+11 20 03 30 02 10 80
+11 20 06 5A 89 62 64 06 78 24
+11 20 07 00 03 00 07 0C 35 00 09
+11 20 08 38 11 15 15 80 1A 40 00 00
+11 20 09 45 8F 00 DE 01 00 44 06 0A 1A
+11 20 0C 18 01 80 08 03 80 00 20 20 00 E8 00 5E
+11 20 0C 24 05 76 1A 02 B9 02 C0 00 94 23 81 56
+11 21 06 2E 7D 40 A0 44 28 20 57
+11 21 0C 00 CC A1 30 A0 21 D1 B9 C9 EA 05 12 11
+11 21 0C 0C 0A 04 15 FC 03 00 CC A1 30 A0 21 D1
+11 21 0C 18 B9 C9 EA 05 12 11 0A 04 15 FC 03 00
+11 22 04 00 18 10 C0 1D
+11 40 08 00 38 0E DA 74 44 44 20 FE
+11 61 0C 18 B9 C9 EA 05 12 11 0A 04 15 FC 03 00
+```
+
+That maps to:
+| Property | Name | Meaning | Value |
+|---------|------|---------|--------|
+| 01:00 | INT_CTL_ENABLE | Master interrupt enables |05|
+| 01:01 | INT_CTL_PH_ENABLE | Packet handler interrupt enables |3A|
+| 02:00 | FRR_CTL_A_MODE ||0A|
+| 10:04 | MODEM_MOD_TYPE || 31 = GFSK |
+| 11:00 | MODEM_CHFLT_RX1_CHFLT_COE13_7_0 ||03|
+| 11:01 | MODEM_CHFLT_RX1_CHFLT_COE12_7_0 ||B4|
+| 11:02 | MODEM_CHFLT_RX1_CHFLT_COE11_7_0 ||2B|
+| 11:03 | MODEM_CHFLT_RX1_CHFLT_COE10_7_0 ||B4|
+| 11:04 | MODEM_CHFLT_RX1_CHFLT_COE9_7_0 ||2B|
+| 12:00 | PA_MODE ||04|
+| 12:01 | PA_PWR_LVL ||01|
+| 12:02 | PA_BIAS_CLKDUTY ||08|
+| 12:03 | PA_TC ||FF|
+| 12:04 | PA_RAMP_EX ||FF|
+| 12:05 | PA_RAMP_DOWN_DELAY ||20|
+| 12:06 | PA_DIG_PWR_SEQ_CONFIG ||82|
+| 12:07 | PA_DIG_PWR_SEQ_DELAY ||00|
+| 12:08 | PA_DIG_PWR_SEQ_STEP ||2A|
+| 12:09 | PA_DIG_PWR_SEQ_STEP2 ||01|
+| 12:0E–12:39|undocumented PA/GPIO/Sequencer internal||01,04,08,80,00,3F,00,2A,01,04,80,00,3F,00,0A,FF,FF,FF,FF|
+| 12:6F–12:71|undocumented PA/GPIO/Sequencer internals||FF,FF,FF|
+| 20:00 | SYNTH_PFDCP_CPFF ||03|
+| 20:01 | SYNTH_PFDCP_CPINT ||00|
+| 20:02 | SYNTH_PFDCP_CPINC ||07|
+| 20:03 | SYNTH_PFDCP_CPI ||0C|
+| 20:04 | SYNTH_PFDCP_FDCP ||35|
+| 20:05 | SYNTH_LPFILT3 ||00|
+| 20:06 | SYNTH_LPFILT2 ||09|
+| 20:0B | SYNTH_LPFILT1 ||05|
+| 20:0C | SYNTH_LPFILT0 ||76|
+| 20:18–20:1F | SYNTH_VCO_KV / VCO calibration ||01,80,08,03,80,00,20,20|
+| 20:20–20:23 | SYNTH_VCO_KVCAL ||00,E8,00,5E|
+| 20:24–20:2F | SYNTH_VCO parameters ||05,76,1A,02,B9,02,C0,00,94,23,81,56|
+| 20:30 | SYNTH_LPFILT3_RX ||02|
+| 20:31 | SYNTH_LPFILT2_RX ||10|
+| 20:32 | SYNTH_LPFILT1_RX ||80|
+| 20:38–20:3F | SYNTH_LPFILT_RX path ||11,15,15,80,1A,40,00,00|
+| 20:45–20:4D | SYNTH_MISC / VCO / charge pump ||8F,00,DE,01,00,44,06,0A,1A|
+| 20:50–20:55 | SYNTH_DIVIDER / BAND / OUTDIV ||84,0A,83,41|
+| 20:5A–20:5F | SYNTH calibration / VCO bias ||89,62,64,06,78,24|
+| 21:00–21:23 | MATCH_VALUE_x (documented as MATCH registers) ||CC,A1,30,A0,21,D1,B9,C9,EA,05,12,11,0A,04,15,FC,03,00,CC,A1,30,A0,21,D1,B9,C9,EA,05,12,11,0A,04,15,FC,03,00|
+| 21:2E–21:33 | MATCH_VALUE_x ||7D,40,A0,44,28,20|
+| 22:00 | FREQ_CONTROL_INTE ||18|
+| 22:01 | FREQ_CONTROL_FRAC_2 ||10|
+| 22:02 | FREQ_CONTROL_FRAC_1 ||C0|
+| 22:03 | FREQ_CONTROL_FRAC_0 ||1D|
+| 40:00–40:07 | Undocumented MODEM internal parameters ||38, 0E, DA, 74, 44, 44, 20, FE|
+| 61:18–61:23 | Undocumented AGC/timing/slicer parameters ||B9,C9,EA,05,12,11,0A,04,15,FC,03,00|
+
 ## Documents
 [FCC Details](https://fccid.io/pdf.php?id=4975342). The 433MHz grant is specifically for 433.92MHz-433.92MHz (no range)
 
