@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
-from scipy.signal import firwin, lfilter
+from scipy.signal import firwin, lfilter, decimate
 
 import logging
 
@@ -114,16 +114,27 @@ class iq_samples:
         return self._modified(
             data = lfilter(lp_taps, 1.0, self.data))
 
+    def downsample(self, ds_factor:int) -> 'iq_samples':
+        """
+        Resamples the iq_samples, keeping only one sample per `ds_factor` samples.
+
+        :param ds_factor: Number of samples to reduce to one.
+        :type ds_factor: int
+        :return: The decimated `iq_samples`
+        :rtype: iq_samples
+        """
+        return self._modified(data = self.data[::ds_factor], fs=self.fs/ds_factor)
+
     def decimate(self, decimation_factor:int) -> 'iq_samples':
         """
-        Resamples the iq_samples, keeping only one sample per `decimation_factor` samples.
+        Decimates (LPF + downsample) the iq_samples, keeping only one sample per `ds_factor` samples.
 
         :param decimation_factor: Number of samples to reduce to one.
         :type decimation_factor: int
         :return: The decimated `iq_samples`
         :rtype: iq_samples
         """
-        return self._modified(data = self.data[::decimation_factor], fs=self.fs/decimation_factor)
+        return self._modified(data = decimate(self.data, decimation_factor, ftype='fir'), fs=self.fs/decimation_factor)
 
     def save_to_cf32(self, base):
         """
