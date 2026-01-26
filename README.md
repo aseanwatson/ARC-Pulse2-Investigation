@@ -325,6 +325,55 @@ FREQ_CONTROL_CHANNEL_STEP_SIZE_0|40:05|00     |44        |
 FREQ_CONTROL_W_SIZE             |40:06|20     |20        |
 FREQ_CONTROL_VCOCNT_RX_ADJ      |40:07|FF     |FE        |
 
+### RF Values
+The [documentation](http://www.silabs.com/documents/public/application-notes/EZRadioPRO_REVC2_API.zip) (and the Silicon Labs [Wireless Development Suite](https://www.silabs.com/documents/login/software/WDS3-Setup.exe)) give a way to
+better understand these values.
+#### Center Frequency
+This tells me that the center frequency:
+$$
+RF_{Channel_{Hz}}=\left(fc_{inte}+\frac{fc_{frac}}{2^{19}}\right) \times \left(\frac{N_{PRESC} \times freq\_xo}{outdiv}\right)
+$$
+
+* `FREQ_CONTROL_INTE = 0x38`
+* `FREQ_CONTROL_FRAC = 0x0EDA74`
+* `MODEM_CLKGEN_BAND = 0x0A` so
+    * `BAND = 2` and `OUTDIV = 8` and
+	* $N_{PRESC} = 2.
+
+This comes up with a center frequency of 433.925 MHz.
+
+When I plug in 433.925MHz to WDS, I get:
+```c
+#define RF_MODEM_RAW_SEARCH2_2 0x11, 0x20, 0x02, 0x50, 0x84, 0x0A
+#define RF_FREQ_CONTROL_INTE_8 0x11, 0x40, 0x08, 0x00, 0x38, 0x0E, 0xDA, 0x74, 0x44, 0x44, 0x20, 0xFE
+```
+
+#### Modulation type
+`MODEM_MOD_TYPE = 0x03` means 2-tone GFSK.
+
+#### Deviation
+Here's the deviation:
+$$
+MODEM\_FREQ\_DEV=\left(\frac{2^{19} \times outdiv \times Desired\_Dev\_Hz}{N_{PRESC} \times freq\_xo}\right)
+$$
+
+So
+$$
+Desired\_Dev\_Hz = MODEM\_FREQ\_DEV \times \frac{N_{PRESC} \times freq\_xo}{outdiv \times 2^{19}}
+$$
+* `MODEM_FREQ_DEV = 0x0576`
+* `MODEM_CLKGEN_BAND = 0x0A` so
+    * `BAND = 2` and `OUTDIV = 8` and
+	* $N_{PRESC} = 2.
+
+This comes to 20kHz (19.9986kHz).
+
+#### Symbol rate
+There is a complex relationship between `MODEM_DATA_RATE=0x0c3500` and
+`MODEM_TX_NCO_MODE` (`TXOSR=2`, so 20x oversampling ratio;
+`NCOMOD=0x1C9C380`).  By fiddling with the Data Rate in WDS, I was able to
+find 40kbps yields the property values I saw on SPI.
+
 ## Documents
 [FCC Details](https://fccid.io/pdf.php?id=4975342). The 433MHz grant is specifically for 433.92MHz-433.92MHz (no range)
 
