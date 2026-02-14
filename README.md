@@ -17,7 +17,7 @@ I reached out to tech support on multiple occasions; they would send someone out
 moving things around and getting stuff paired again and
 then it would stop working a day or two later.
 
-The issue seems deeper than a radio strenth problem. When placing the blind right next to the hub (well within range of the handheld remote), the hub would not pair.
+The issue seems deeper than a radio strength problem. When placing the blind right next to the hub (well within range of the handheld remote), the hub would not pair.
 
 ## Hardware
 ![Photo of PCB](data/Pluse-Hub2-rev1.6.jpg)
@@ -212,3 +212,4 @@ save_to_gqrx_float32(samples, 'generated/remote_dr2_f433125000_s2000000_a0_l16_g
 
 After opening GQRX with the device string of `file=generated/dining_room_2_f433000000_s2000000.c32,freq=433.0e6,rate=20e6,repeat=true,throttle=true`, and setting the frequency to `0` in the **Receiver Options** tab, I get this:
 ![GQRX Screen Shot](data/GQRX_f433125000_s2000000_a0_l16_g2.png)
+
